@@ -81,5 +81,10 @@ Arcaea iOS 运行时改造套件（免越狱设计、侧载可用）——**旨�
 - 面板设计源：`ui-mock/panel_mock.html`（改这里 = 改设计）。
 - 证据纪律：二进制偏移必须在 `XRCProfile.h` 带出处注释。
 
+## 8. 许可
+
+- 自有代码：见 `LICENSE`（保留所有权利，附个人学习研究授权）。
+- 上游与第三方组件（AccDemo / WHToast / fishhook）：见 `THIRD_PARTY_NOTICES.md`。
+
 © 雾月星辰 & MLXC · github@XingChenRS
 此项目为Xrcxex附属
