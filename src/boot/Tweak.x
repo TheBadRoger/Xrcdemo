@@ -345,6 +345,8 @@ static void xrc_apply_switches(void) {
     xrc_logi(XRCLC_BOOT, @"==== xrcdemo %@ build %s · %s · 基线 %@ ====",
              XRC_VERSION, XRC_BUILD_STAMP,
              XRC_DEBUG_BUILD ? "debug" : "release", gameVer);
+    // 游戏循环模式升级：面板滚动（滚动视图跟踪模式）期间谱面不再冻结
+    @try { xrc_gameplay_displaylink_common_install(); } @catch (NSException *e) { xrc_logw(XRCLC_BOOT, @"displaylink common EX: %@", e); }
     @try { %init(ui); }   @catch (NSException *e) { xrc_logw(XRCLC_BOOT, @"%%init(ui) EX: %@", e); }
     @try { xrc_config_load(&g_cfg); }  @catch (NSException *e) { xrc_logw(XRCLC_BOOT, @"config EX: %@", e); }
     @try {

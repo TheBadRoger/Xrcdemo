@@ -7,6 +7,7 @@
 #import <Foundation/Foundation.h>
 #import "XRCLog.h"    // xrc_log
 #include <limits.h>
+#include <objc/runtime.h>
 #include <sys/mman.h>
 #include <errno.h>
 #include <mach/vm_map.h>
@@ -541,6 +542,31 @@ void xrc_gameplay_install_hooks(uint64_t image_base) {
                                       (void *)xrc_gameplay_update,
                                       (void **)&s_orig_gp_update);
         if (slot != INT_MIN) xrc_logd(XRCLC_JUDGE, @"gp.update vtable installed slot=%d", slot);
+    });
+}
+
+// ---------------- 游戏主循环模式升级（面板滚动期间谱面不再冻结）----------------
+// 机制：UIKit 在 UIScrollView 拖动期间把主 runloop 切到 UITrackingRunLoopMode，
+// 注册在 default 模式的 CADisplayLink 停摆 ⇒ 整个游戏循环（谱面）冻结，而 FMOD
+// 音频在独立线程继续播——两个体征合起来即"滑动面板：谱面停、音乐不停"。
+// 做法：把 CADisplayLink 的 addToRunLoop:forMode: 一律升级注册到 common modes
+//（含 tracking）——滚动期间游戏照常跑，音画一致；注册时打一行日志留痕。
+static IMP s_orig_add_to_runloop = NULL;
+static void s_cadl_add_common(id self_, SEL _cmd, NSRunLoop *rl, NSString *mode) {
+    xrc_logi(XRCLC_BOOT, @"[boot] CADisplayLink addToRunLoop: %@ → common modes", mode);
+    ((void (*)(id, SEL, NSRunLoop *, NSString *))s_orig_add_to_runloop)(self_, _cmd, rl,
+                                                                        NSRunLoopCommonModes);
+}
+
+void xrc_gameplay_displaylink_common_install(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        Class c = NSClassFromString(@"CADisplayLink");
+        SEL sel = NSSelectorFromString(@"addToRunLoop:forMode:");
+        Method m = c ? class_getInstanceMethod(c, sel) : NULL;
+        if (!m) { xrc_logw(XRCLC_BOOT, @"[boot] CADisplayLink hook miss"); return; }
+        s_orig_add_to_runloop = method_getImplementation(m);
+        method_setImplementation(m, (IMP)s_cadl_add_common);
     });
 }
 
