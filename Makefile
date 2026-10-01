@@ -5,34 +5,35 @@ ARCHS = arm64 arm64e
 # 构建轴：本地默认开发构建（调试工具 + DEBUG 日志）；CI 发布显式 XRC_DEBUG=0。
 XRC_DEBUG ?= 1
 
-# xrcdemo：侧载 dylib（含改判桩注入器）。主程序手术仅限 inject.py --stub。
+# xrcdemo：侧载 dylib；主程序定点手术全部由 inject.py 完成（dylib 注入 / 判定桩 / BRK 站点）。
 LIBRARY_NAME = xrcdemo
 
-xrcdemo_FILES = Tweak.x
-xrcdemo_FILES += XRCClock.m
-xrcdemo_FILES += XRCPlayer.m
-xrcdemo_FILES += XRCAudio.m
-xrcdemo_FILES += XRCGameplay.m
-xrcdemo_FILES += XRCReplay.m
-xrcdemo_FILES += XRCJudge.m
-xrcdemo_FILES += XRCConfig.m
-xrcdemo_FILES += XRCLog.m
-xrcdemo_FILES += XRCFloatButton.m
-xrcdemo_FILES += XRCTimelineView.m
-xrcdemo_FILES += XRCSwitchRow.m
-xrcdemo_FILES += XRCPracticePanel.m
-xrcdemo_FILES += XRCRuntime.m
-xrcdemo_FILES += XRCProbe.m
-xrcdemo_FILES += XRCHook.m
-xrcdemo_FILES += XRCDump.m
-xrcdemo_FILES += XRCNet.m
-xrcdemo_FILES += XRCOMLog.m
-xrcdemo_FILES += XRCStore.m
-xrcdemo_FILES += fishhook.c
-xrcdemo_FILES += $(wildcard WHToast/WHToast/*.m)
+xrcdemo_FILES = src/boot/Tweak.x
+xrcdemo_FILES += src/core/XRCRuntime.m
+xrcdemo_FILES += src/core/XRCConfig.m
+xrcdemo_FILES += src/core/XRCHook.m
+xrcdemo_FILES += src/gameplay/XRCGameplay.m
+xrcdemo_FILES += src/gameplay/XRCClock.m
+xrcdemo_FILES += src/gameplay/XRCPlayer.m
+xrcdemo_FILES += src/gameplay/XRCAudio.m
+xrcdemo_FILES += src/gameplay/XRCJudge.m
+xrcdemo_FILES += src/gameplay/XRCReplay.m
+xrcdemo_FILES += src/content/XRCNet.m
+xrcdemo_FILES += src/content/XRCStore.m
+xrcdemo_FILES += src/diag/XRCLog.m
+xrcdemo_FILES += src/diag/XRCProbe.m
+xrcdemo_FILES += src/diag/XRCDump.m
+xrcdemo_FILES += src/diag/XRCOMLog.m
+xrcdemo_FILES += src/ui/XRCFloatButton.m
+xrcdemo_FILES += src/ui/XRCTimelineView.m
+xrcdemo_FILES += src/ui/XRCSwitchRow.m
+xrcdemo_FILES += src/ui/XRCPracticePanel.m
+xrcdemo_FILES += vendor/fishhook/fishhook.c
+xrcdemo_FILES += $(wildcard vendor/WHToast/*.m)
 
 xrcdemo_CFLAGS  += -fobjc-arc
-xrcdemo_CFLAGS += -I./WHToast -I./include
+xrcdemo_CFLAGS += -Isrc/core -Isrc/gameplay -Isrc/content -Isrc/diag -Isrc/ui
+xrcdemo_CFLAGS += -Ivendor -Ivendor/fishhook
 xrcdemo_CFLAGS += -DXRC_DEBUG_BUILD=$(XRC_DEBUG)
 
 xrcdemo_LIBRARIES = substrate

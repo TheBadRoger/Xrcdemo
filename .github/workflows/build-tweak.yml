@@ -12,22 +12,15 @@ jobs:
       THEOS_VER: 5280bd0
       EK_VER: ellekit-1.2
       DYLIB_OUT: libxrcdemo.dylib
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_MAXSIZE: 1G
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # WHToast（toast UI 库）以固定 commit 拉取到 WHToast/，保持仓库自包含
-      # （不依赖 git submodule——旧仓的子模块登记曾丢失导致空目录）。
-      - name: Fetch WHToast
-        run: |
-          git clone --depth 1 https://github.com/remember17/WHToast.git /tmp/whtoast
-          mkdir -p WHToast
-          cp -r /tmp/whtoast/WHToast WHToast/WHToast
-          ls WHToast/WHToast/*.h WHToast/WHToast/*.m
-
       - name: Install build deps
-        run: brew install ldid xz coreutils
+        run: brew install ldid xz coreutils ccache
 
       # ---- cache: Theos toolchain ----
       - name: Cache Theos
@@ -57,14 +50,24 @@ jobs:
             https://github.com/theos/sdks/releases/download/master-146e41f/iPhoneOS14.5.sdk.tar.xz
           tar -xJf /tmp/sdk.tar.xz -C "$THEOS/sdks"
 
+      # ---- cache: ccache 编译缓存（key 随提交滚动，restore-keys 命中最近一份）----
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            ccache-${{ runner.os }}-
+
       - name: Build dylib
         run: |
           make clean
           # 构建戳：写头文件（避免 shell 引号问题），日志首行打印
-          printf '#define XRC_BUILD_STAMP "%s-%s"\n' "${GITHUB_SHA:0:7}" "$(date -u +%m%d%H%M)" > xrc_build_stamp.h
-          make XRC_DEBUG=0
+          printf '#define XRC_BUILD_STAMP "%s-%s"\n' "${GITHUB_SHA:0:7}" "$(date -u +%m%d%H%M)" > src/core/xrc_build_stamp.h
+          make XRC_DEBUG=0 TARGET_CC="ccache clang" TARGET_CXX="ccache clang++"
+          ccache -s || true
           mkdir -p out
-          DYLIB="$(find .theos/obj -maxdepth 2 -name 'xrcdemo.dylib' -not -path '*.dSYM*' | head -n1)"
+          DYLIB="$(find .theos/obj -name 'xrcdemo.dylib' -not -path '*.dSYM*' | head -n1)"
           if [ -z "$DYLIB" ]; then echo "xrcdemo.dylib not found"; exit 1; fi
           cp "$DYLIB" "out/${DYLIB_OUT}"
           install_name_tool -change \

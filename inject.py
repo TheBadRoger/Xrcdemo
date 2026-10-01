@@ -12,7 +12,7 @@ Two independent stages:
    afterwards (the user signs the result).
 
 Stub facts (Arcaea iOS 7.0.255):
-  entry      vm 0x10091E684  (fileoff 0x91E684)   ← 判定核（曾误记为 sub_1009D9ED8：那是特效显示链）
+  entry      vm 0x10091E684  (fileoff 0x91E684)   ← 判定核（注意与特效显示链 sub_1009D9ED8 区分）
   trampoline vm 0x10146800C  (fileoff 0x146800C, __TEXT tail zero-run 0x146800a..0x146c000)
   slot       vm 0x10164AB28  (fileoff 0x164AB28, __DATA tail zero-run 0x164ab25..0x164c000)
   distance entry->tramp = 177MB > B range -> ADRP+ADD+BR absolute (12 bytes,
@@ -38,26 +38,26 @@ INJECT_NAME = "@rpath/libxrcdemo.dylib"
 LC_LOAD_DYLIB = 0x8000000C
 LC_RPATH = 0x8000001C
 
-# ---- judge stub constants (7.0.255, corrected 2026-09-10) ----
+# ---- judge stub constants (7.0.255) ----
 # 判定核心 = sub_10091E684（整数 CMP 级联；与 6.13 sub_100870FD0 入口及 CMP
-# 站点字节级同构——跨版本可直接按字节指纹重定位，见 README §4）。
-# 注意：sub_1009D9ED8 是特效显示链，不是判定核。
+# 站点字节级同构——跨版本可直接按字节指纹重定位，见 README §6）。
+# 判别：sub_1009D9ED8 是特效显示链，与判定核易混。
 STUB_ENTRY_VA   = 0x10091E684
 STUB_ENTRY_FILE = 0x91E684
 STUB_TRAMP_VA   = 0x10146800C
 STUB_TRAMP_FILE = 0x146800C
 STUB_SLOT_VA    = 0x10164AB28
 STUB_SLOT_FILE  = 0x164AB28
-STUB_INFO_VA    = 0x10164AB40   # slot + 24（slot v2 由 16B 扩为 24B）
+STUB_INFO_VA    = 0x10164AB40   # slot 之后 24B 处
 STUB_INFO_FILE  = 0x164AB40
 # expected first 3 insns at entry (file byte order; IDA dwords
 # a9bc5ff8=a90157f6=a9024ff4 as STP X24,X23 / STP X22,X21 / STP X20,X19):
 STUB_ENTRY_EXPECT = bytes.fromhex("f85fbca9f65701a9f44f02a9")
 
 XRC_MAGIC = 0x58424331  # 'XRC1'
-XRC_INFO_VERSION = 2  # blob 版本：v2 = slot 24B + 判定链 ABI
+XRC_INFO_VERSION = 2  # blob 布局版本：slot 24B + 判定链 ABI
 
-# ---- BRK 桩（实验形态，2026-09-11）----
+# ---- BRK 桩 ----
 # 把目标指令原地改成 `BRK #0`（D4200000，4B 长度不变），dylib 用 SIGTRAP 处理器
 # 接住并把 PC 指向重放跳板。跳板 = 原始指令 + B 回 site+4，共 8B。
 # 与判定桩的 40B 跳板（fileoff 0x146800C..0x1468034）不重叠。
@@ -68,34 +68,33 @@ BRK_INSN = struct.pack("<I", 0xD4200000)
 BRK_HOOKS = [
     ("applog_send", 0x100623AEC, 0x101468040, None),   # sub_100623AEC 入口（OnlineManager 槽 72）
     # log_blob 组装处（密文出口）：待发送的 std::string 在 sp+0x290。
-    # 选 0x1006399E4（add x0,sp,#var_428）而非前一条 ADRL —— ADRL 是 PC 相对指令，
-    # 重放跳板在别处执行会算错目标，这里只收 SP 相对/绝对寻址的指令。
+    # 站点指令 0x1006399E4（add x0,sp,#var_428）为 SP 相对寻址——重放安全；
+    # PC 相对指令（ADR/ADRL/B/CBZ 等）不能在重放跳板执行（会在别处算错目标）。
     ("applog_blob", 0x1006399E4, 0x101468050, None),
-    # ---- 拥有/解锁链（功能账 §1.1，2026-09-14 重定位）----
-    # ⚠ 2026-09-28 实测结论（用户）：这三桩**实际无效**——歌曲归属由 cb 的
-    #   songlist/packlist/unlocks 三张清单 + 服务器 /user/me 授予共同决定；
-    #   本组只在"服务器未授予、但本地已有内容"时兜底。默认关，保留备查。
-    # 层1 取第 2 条指令：首条 CBZ X1 是 PC 相关指令、不可重放；本条 LDR X9,[X0,#0x268] 安全。
+    # ---- 拥有/解锁链（功能账 §1.1）----
+    # 歌曲归属由 cb 的 songlist/packlist/unlocks 三张清单 + 服务器 /user/me 授予共同决定；
+    # 本组覆盖"服务器未授予、但本地已有内容"的场景（--features unlock_own 启用）。
+    # 层1 取第 2 条指令：LDR X9,[X0,#0x268] 为寄存器相对寻址（重放安全）；
+    # 首条 CBZ X1 是 PC 相对条件分支，不可进重放跳板。
     ("unlock_l1",  0x100BE46AC, 0x101468058, "093441f9"),  # 层1 sub_100BE46A8 +4（拥有表线性扫描）
     ("unlock_l2",  0x100BE46EC, 0x101468060, "ff0302d1"),  # 层2 sub_100BE46EC 入口（SUB SP,#0x80）
     ("unlock_l3",  0x100BE4D38, 0x101468068, "fd7bbfa9"),  # 层3 sub_100BE4D38 入口（STP X29,X30,[SP,#-0x10]!）
-    # ---- cb 验证链（功能账 §3，2026-09-14 重定位）----
+    # ---- cb 验证链（功能账 §3）----
     ("cb_ready",    0x100F43274, 0x101468078, "00a04039"),  # 就绪位 getter（LDRB W0,[X0,#0xA];RET）
-    # 2026-09-28 重构：退役"整只跳过校验器"的 cb_verify 桩（毒药：valid 不置位 → 版本报 0.0.0
-    #   → 下游断言崩，见 memory arcaea-7.0-cb-verification-architecture）。改为"让校验结论恒为通过"：
+    # cb 自由化：让校验结论恒为通过，并保持成功路径完整：
     #   ① 逐文件 sha256 比较的 B.NE → 恒不跳（视为相等）
     #   ② 三清单 HMAC 比较的 B.NE → 恒不跳（成功块照常写 valid=1 并回填版本串）
-    #   ③ 清树函数入口 → 直接返回（永不删除 cb/meta*；文件缺失/被改也不会被清）
+    #   ③ 清树函数入口 → 直接返回（cb/meta* 不因文件缺失/被改而被清）
     #   ⚠ ① ② 是 PC 相对条件分支，**不能进重放跳板**（会在别处算错目标）；handler 内按 NZCV
     #     自行复现分支，故 replay=0（no-replay）。
     ("cb_filehash", 0x100F44F9C, None, "21110054"),  # B.NE loc_100F451C0（逐文件 32B sha256 比较）
     ("cb_listhash", 0x100F450B0, None, "21090054"),  # B.NE loc_100F451D4（三表 HMAC 比较）
     ("cb_wipe",     0x100F43C08, 0x101468120, "ffc301d1"),  # 清树入口（SUB SP,#0x70）
     ("cb_dispatch", 0x10013C5E8, 0x101468088, "ff0304d1"),  # 更新错码分发入口（SUB SP,#0x100）
-    # ---- 自动演奏（外部参考实现全量对齐；功能账 §5.2，2026-09-18 定位）----
+    # ---- 自动演奏（外部参考实现对齐；功能账 §5.2）----
     # 站点语义/handler 见 XRCProfile.h + XRCHook.m；开关 xrc_judge_set_autoplay（默认关）。
     # 关时各站重放原指令，行为与未注入一致；开启后长条走原版 Pure tick、窗口点强判、
-    # 三输入入口吞触摸。需 dylib 带 "autoplay-eve v1"（main() 配对校验）。
+    # 三输入入口吞触摸。配对标记 "autoplay-eve v1"（dylib 侧必须存在，见配对校验）。
     ("ap_ln_state",      0x10091DBC8, 0x1014680B0, "08904139"),  # LDRB W8,[X0,#0x64]（长条触摸态读取点）
     ("ap_ln_tick",       0x10091DC48, 0x1014680B8, "680340f9"),  # LDR X8,[X27]（长条判定派发前 vtable 装载）
     ("ap_note_win",      0x10091DD70, 0x1014680C0, "5f00086b"),  # CMP W2,W8（窗口 = note+0x1C+0xC8）
@@ -104,27 +103,26 @@ BRK_HOOKS = [
     ("ap_swallow_batch", 0x10091F688, 0x1014680D8, "ff8302d1"),  # SUB SP,#0xA0（输入批处理 sub_10091F688 入口）
     ("ap_swallow_touch", 0x100921DC4, 0x1014680E0, "ff0302d1"),  # SUB SP,#0x80（触摸批 sub_100921DC4 入口）
     ("ap_arc_visual",    0x10091CC84, 0x1014680E8, "1f200079"),  # STRH WZR,[X0,#0x10]（场景 tick 弧清态点）
-    # v2.1 诊断计数（2026-09-19）：引擎两个 tick 助手的返回点（MOV X26,X0；重放安全），
+    # 诊断计数：引擎两个 tick 助手的返回点（MOV X26,X0；重放安全），
     # 量化"引擎自己发了多少 tick 判定"（对账物量/分数 vs 原谱）。
     ("ap_tickcnt1",      0x10091DCBC, 0x1014680F0, "fa0300aa"),  # MOV X26,X0（helper1=sub_10091E878 返回后，Pure tick 数）
     ("ap_tickcnt2",      0x10091DDBC, 0x1014680F8, "fa0300aa"),  # MOV X26,X0（helper2=sub_10091E958 返回后，Lost tick 数）
-    # ---- 曲目锁态覆盖（v2.6；取证 research/notes/xrc-packlock-rootcause-2026-09-19.md）----
+    # ---- 曲目锁态覆盖（取证 research/notes/xrc-packlock-rootcause-2026-09-19.md）----
     # 锁状态函数 sub_100919E5C 的两个专属子分支（各自唯一调用方=锁态函数自身）：
     #   FV 五曲 fast path / DO(konzetsu) 分支。入口直返 0x0101010101（五难度类全解锁）；
-    #   开关 unlockFv / unlockDo（v2.12 由 unlockAll 一拆四）关时重放原指令走原路径。
-    #   两处入口指令均 SP 相对、重放安全。
+    #   开关 unlockFv / unlockDo 关时重放原指令走原路径。两处入口指令均 SP 相对、重放安全。
     ("lock_fv",          0x100991508, 0x101468100, "f44fbea9"),  # STP X20,X19,[SP,#-0x20]!（FV 五曲 fast path 入口）
     ("lock_do",          0x100AAE50C, 0x101468108, "ff4303d1"),  # SUB SP,#0xD0（DO/konzetsu 分支入口）
-    # v2.7 终章链门（FV 五曲"锁标 + 开局门"的共同上游：锁态 sub_100991508 与可玩性谓词
-    #   sub_100919874 都调它）→ 入口直返 1 = **放行**（v2.11 修正：0 是"锁"，返 0 会把全曲钉死）；
-    #   开关 gateOpen（v2.12 一拆四之一），关时重放。
+    # 终章链门（FV 五曲"锁标 + 开局门"的共同上游：锁态 sub_100991508 与可玩性谓词
+    #   sub_100919874 都调它）→ 入口直返 1 = **放行**（注意语义：0 是"锁"）；
+    #   开关 gateOpen，关时重放。
     ("fv_gate",          0x10099156C, 0x101468110, "ff0303d1"),  # SUB SP,#0xC0（终章链门入口）
-    # v2.10 链进度覆盖（7.0 新增「链」系统的查表点；取证 xrc-chain-regression-6.13-vs-7.0-2026-09-19.md）：
+    # 链进度覆盖（7.0「链」系统的查表点；取证 xrc-chain-regression-6.13-vs-7.0-2026-09-19.md）：
     #   sub_10098FB1C 把硬编码曲名（InitFunc_194 表）拼 "<名>|<难度>" 查节点对象；对象按 songlist 的
     #   id 注册 → 改名/挪包即 NULL → 不判空 → 读 [NULL+0x28] 崩。入口直返 100（无对象进度值）。
     #   **不设开关、恒生效**（守崩桩）；dylib 侧配对标记 "chain-guard v1"。
     ("chain_prog",       0x10098FB1C, 0x101468118, "ffc302d1"),  # SUB SP,#0xB0（链进度 sub_10098FB1C 入口）
-    # ---- 弧/绘制观测桩（v1：只观测不改行为；handler 见 XRCHook.m"弧/绘制 观测桩"）----
+    # ---- 弧/绘制观测桩（只观测不改行为；handler 见 XRCHook.m"弧/绘制 观测桩"）----
     # 三处都是函数入口，首指令均为 SUB SP,SP,#N（非 PC 相对 ⇒ 可重放）。
     # ⚠ 这三条打在**入口 +4**：入口的 `SUB SP,SP,#N` 照常执行 ⇒ SP 自然正确；
     #   被换成 BRK 的是一条 `STP Dn,Dm,[SP,#..]`（保存 callee 浮点，无副作用）。
@@ -132,57 +130,53 @@ BRK_HOOKS = [
     ("rpf_draw",    0x100B23668, 0, "eb2b056d"),  # 绘制趟 入口+4（STP D11,D10）X0=track X1=音符表
     ("rpf_arctick", 0x100AFFC14, 0, "ed33016d"),  # 弧 tick 入口+4（STP D13,D12）X0=弧渲染对象
     ("rpf_arcpass", 0x100AFFA94, 0, "eb2b026d"),  # 头过线 入口+4（STP D11,D10）X0=弧渲染对象
-    # ---- 弧分段「藏」的两处（v8.44：只在回跳期把它反过来变成「显」）----
-    # 真机现象（用户截图）：弧带下端被整齐切掉 = **弧的开头**不显示，不开 autoplay 看不到起手点。
+    # ---- 弧分段「藏」的两处（仅在回跳窗口内把「藏」反成「显」）----
+    # 症状：弧带下端被整齐切掉 = **弧的开头**不显示，起手点不可见。
     # 反汇编：两处唯一的藏动作都是 `MOV W1,#0` + `setVisible(child, 0)`（slot 42，vtable+0x150）：
     #   A 0x100AFFB60  in sub_100AFFA90（头过线）：判据 isVisible && (pos.z+head)*sgn >= sgn*10
     #   B 0x100AFFE80  in sub_100AFFC10（弧 tick）：跳到共享尾声 0x100B00048 处才 BLR
     # 打桩打在 **MOV W1,#0** 这条上：handler 平时一个字都不改（=与未打桩逐字节同行为），
     # 仅在「回跳后尚未涨回旧水位」的窗口里把 W1 改成 1 ⇒ 引擎自己把分段显回来。
-    # 这样正常游玩完全不受影响（用户明确要求：只在 seek 回发生时开启）。
+    # 正常游玩不受影响（只在 seek 回发生时生效）。
     ("arc_hide_a", 0x100AFFB60, 0, "01008052"),   # MOV W1,#0（头过线里的藏）
     ("arc_hide_b", 0x100AFFE80, 0, "01008052"),   # MOV W1,#0（弧 tick 里的藏）
 ]
 
-# ---- 退役站点（已从 BRK_HOOKS 移除，但历史构建打过桩）----
-# 为什么必须单列：还原逻辑只遍历 BRK_HOOKS，退役站点不在表里 ⇒ 旧二进制的残桩**永远还原不掉**；
-# 而 dylib 侧也没有它的处理器 ⇒ 命中即无处理器的 SIGTRAP **直接闪退**。
-# 2026-09-29 事故：cb_verify（整只跳过校验器，2026-09-28 退役）的残桩留在 0x100F43FFC
-#   = cb 校验函数 sub_100F43FFC 入口，启动时后台线程走 cb 校验 → EXC_BREAKPOINT/thread 18 秒崩。
-# 原字节取自原始二进制（samples/.../stage1/Arc-mobile，md5 49fbbba8…）。新增退役项时照此补。
-RETIRED_SITES = [
+# ---- 还原站点：不在 BRK_HOOKS、但既有二进制可能带其桩的站点 ----
+# 还原逻辑遍历 BRK_HOOKS + 本表：本表站点再注入时若原地仍是 BRK 则还原原字节。
+# 必须单列：遗漏即**还原不掉**，而 dylib 无该站点的处理器 ⇒ 命中 BRK 时 SIGTRAP **直接闪退**。
+# 原字节取自原始二进制（samples/.../stage1/Arc-mobile，md5 49fbbba8…）。新增还原项时照此补。
+RESTORE_SITES = [
     ("cb_verify", 0x100F43FFC, "fc6fbaa9"),   # STP X28,X27,[SP,#-0x60]!（cb 校验入口序言）
 ]
 
-# ---- 功能集（**构建期开关**；2026-09-28）----
-# 目的：不确定/冗余的功能不必删代码，只要"不进这次构建"——注入器按 profile 决定打哪些桩；
-# dylib 启动自检"本构建有哪些站点"（xrc_feature_present），面板据此只显示本构建含有的项，
-# 不留死 UI；清单落进 xrc_patch_manifest.json 可审计。
-#   --profile release（默认：只含确定要的）| dev（全量）| 或 --features a,b 显式指定
-#   status: required=守崩必备 / stable=稳定 / redundant=实测无效（默认不进 release）
+# ---- 功能集（**构建期开关**）----
+# 注入器按 profile 决定打哪些桩；dylib 启动自检"本构建有哪些站点"（xrc_feature_present），
+# 面板只显示本构建含有的项；清单落进 xrc_patch_manifest.json 可审计。
+#   --profile release（默认）| dev（全量）| 或 --features a,b 显式指定
+#   status: required=守崩必备 / stable=稳定 / redundant=由其它机制覆盖（默认不进 release）
 #           / debug=调试采集（默认不进 release）
 FEATURES = [
     ("unlock_own",     ["unlock_l1", "unlock_l2", "unlock_l3"],                    False, "redundant",
-     "拥有链三层——实测无效：归属由 cb 三清单 + 服务器授予决定，仅兜底"),
+     "拥有链三层：归属由 cb 三清单 + 服务器授予决定；本组覆盖服务器未授予而本地已有内容的场景"),
     ("unlock_lock",    ["lock_fv", "lock_do", "fv_gate"],                          True,  "stable",
      "曲目锁态覆盖（FV/DO 五难度全解）+ 终章链门放行（整表解锁总闸）"),
     ("chain_guard",    ["chain_prog"],                                             True,  "required",
      "7.0 链查表守崩桩（恒生效；防改名/挪包 NULL 崩）"),
     ("cb_free",        ["cb_ready", "cb_filehash", "cb_listhash", "cb_wipe", "cb_dispatch"], True, "stable",
-     "cb 自由化：校验结论恒通过（非跳过）+ 清树禁用（离线自改内容的前提）"),
+     "cb 自由化：校验结论恒通过且保持成功路径回填；清树调用直返，内容树保持原样（离线自改内容的前提）"),
     ("autoplay",       ["ap_ln_state", "ap_ln_tick", "ap_note_win", "ap_arctap_win",
                         "ap_swallow_judge", "ap_swallow_batch", "ap_swallow_touch",
                         "ap_arc_visual", "ap_tickcnt1", "ap_tickcnt2"],           True,  "stable",
      "自动演奏（面板开关，默认关）+ 判定计数诊断"),
-    # v8.48（2026-10-01）：**退出 release** —— 它的使命（查「碎弧」）已由 v8.46 渲染重建完成；
-    # 留在 release 里只剩两笔账：每次命中一次内核 SIGTRAP + handler 里遍历整张音符表（实测
-    # 2619 条），全在游戏线程上 ⇒ 帧时间随屏幕弧数浮动 = 抖动。退出后站点会被**还原成原指令**。
+    # 观测桩只用于逆向观测：命中一次过一次内核 SIGTRAP，且 handler 在游戏线程上遍历整张
+    # 音符表 ⇒ 帧时间随弧数浮动。默认不进 release（需要时 --features rpf_arcprobe）。
     ("rpf_arcprobe",   ["rpf_draw", "rpf_arctick", "rpf_arcpass"],                False, "debug",
-     "弧/绘制观测桩（**已退役**：只观测；查碎弧的使命已完成，留着是高频负载）"),
-    # v8.48：**退出 release** —— 被 v8.46 渲染重建取代，且它把引擎正常的「头之后裁掉」封住 ⇒
-    # 弧穿透判定线。退出后 arc_hide_a/arc_hide_b 两个站点**还原**。
+     "弧/绘制观测桩（只观测不改行为；高频负载，默认不进 release）"),
+    # 回跳窗口内把弧分段的「藏」反成「显」；窗口外与未打桩逐字节同行为。
+    # 注意：它与渲染重建的显示路径叠加会让弧越过判定线——默认不进 release。
     ("arc_nohide",     ["arc_hide_a", "arc_hide_b"],                               False, "debug",
-     "回跳期把弧分段的「藏」反成「显」（**已退役**：被渲染重建取代；留着会让弧越过判定线）"),
+     "回跳期把弧分段的「藏」反成「显」（默认不进 release）"),
     ("applog_capture", ["applog_send", "applog_blob"],                             False, "debug",
      "applog 明文/密文采集（调试；默认不落盘，仅 brk 分支构建含）"),
 ]
@@ -219,11 +213,7 @@ def sites_for(feat_names):
     return keep
 
 
-# ---- 门禁静态补丁：**已整表移除**（2026-09-28 用户定调）----
-# 理由：这条 `dl_state_ready_merged`（0x100844774 → `mov w0,#0; ret`，把"下载态总查询"钉成恒返
-# "就绪"）既压制了下载链（接线上服务器时"cb 能同步、曲目下载全失败"），又是**假阳性**——
-# 它无法用来实现"离线自用"。离线自用改由 cb 侧解绑承担（见 BRK_HOOKS 的 cb_* 桩）。
-# 事故与整改全过程：research/notes/xrc-download-stack-cocos-2026-09-19.md §8/§9（含 git history 回退指引）。
+# ---- 门禁静态补丁：就地写、无跳板（默认空表；仅 --gate 时应用）----
 # (名称, VA, 原字节 hex, 补丁字节 hex) —— 幂等：已是补丁字节跳过；expect 不符即报错。
 GATE_PATCHES = []
 # 静态偏移（VA - image base 0x100000000）
@@ -252,12 +242,12 @@ def encode_b(pc_addr: int, dst: int) -> int:
 
 
 def build_trampoline() -> bytes:
-    """Full-takeover trampoline v2 (2026-09-10)。
+    """Full-takeover trampoline v2。
 
-    v1 只保 X0/X1/X2；判定核 sub_10091E684 的第 6 参 X6 由调用方透传进落账
-    函数 sub_100ACB880（judge 自身从不写 X6），handler 重排参数后必须原样
-    转发。v2 在 BR 前插一条 `MOV X3, X6`，把 a6 作为 handler 的第 4 参传入——
-    无需动 SP、无需保存区，跳板只做分发与一次寄存器搬移。
+    判定核 sub_10091E684 的第 6 参 X6 由调用方透传进落账函数 sub_100ACB880
+    （judge 自身从不写 X6），handler 重排参数后必须原样转发。跳板在 BR 前插一条
+    `MOV X3, X6`，把 a6 作为 handler 的第 4 参传入——无需动 SP、无需保存区，
+    跳板只做分发与一次寄存器搬移。
 
     handler 签名（与 xrc_abi.h 一致）：
         uint64_t handler(ng /*x0*/, note /*x1*/, ts /*x2*/, a6 /*x3=X6*/)
@@ -293,7 +283,7 @@ def build_info_blob() -> bytes:
     """xrc_info 结构：magic + version + 6 个静态偏移 + reserved[8]。
     dyld 不 rebase 零填充区（不在 rebase 列表），dylib 手动重定位。"""
     fields = [
-        XRC_MAGIC, 2,   # version 2: slot 24B + 判定链 ABI（v1 为 1）
+        XRC_MAGIC, 2,   # blob 布局版本：slot 24B + 判定链 ABI
 
         STUB_ENTRY_VA - 0x100000000,   # judge_entry_off
         STUB_SLOT_VA - 0x100000000,    # judge_slot_off
@@ -325,12 +315,12 @@ def patch_judge_stub(data: bytearray) -> list[str]:
     data[tramp_file:tramp_file + len(tramp)] = tramp
     logs.append(f"trampoline ({len(tramp)}B) @ fileoff {tramp_file:#x} (vm {STUB_TRAMP_VA:#x})")
 
-    # slot v2: 24 bytes {handler=0, orig=STUB_ENTRY_VA, reserved=0}
+    # slot: 24B {handler=0, orig=STUB_ENTRY_VA, reserved=0}
     slot_file = base + STUB_SLOT_FILE
     if bytes(data[slot_file:slot_file + 24]) != b"\0" * 24:
         raise RuntimeError(f"slot region not zero @ {slot_file:#x}")
     data[slot_file:slot_file + 24] = struct.pack("<QQQ", 0, STUB_ENTRY_VA, 0)
-    logs.append(f"slot v2 (24B) @ fileoff {slot_file:#x} (vm {STUB_SLOT_VA:#x})")
+    logs.append(f"slot (24B) @ fileoff {slot_file:#x} (vm {STUB_SLOT_VA:#x})")
 
     # info blob: 桩点回报信息（运行时锚点清单，dylib 手动重定位）
     info = build_info_blob()
@@ -371,17 +361,16 @@ def patch_brk_hooks(data: bytearray, only_sites=None) -> list[str]:
     logs = []
     base = fat_arm64_slice_offset(bytes(data))
 
-    # ① 退役站点：只要原地还是 BRK 就还原（与本次功能集无关）——见 RETIRED_SITES 注释。
-    for rname, rva, rhex in RETIRED_SITES:
+    # ① 还原站点：只要原地还是 BRK 就还原（与本次功能集无关）——见 RESTORE_SITES 注释。
+    for rname, rva, rhex in RESTORE_SITES:
         roff = base + (rva - 0x100000000)
         if bytes(data[roff:roff + 4]) == BRK_INSN:
             data[roff:roff + 4] = bytes.fromhex(rhex)
-            logs.append(f"brk[{rname}]: 退役站点残桩已还原 {rhex} @ {rva:#x}")
+            logs.append(f"brk[{rname}]: 还原 {rhex} @ {rva:#x}")
 
     for name, site_va, replay_va, expect in BRK_HOOKS:
         if only_sites is not None and name not in only_sites:
-            # 功能未选中：**若该站点此前被注入过，则还原为原始字节**（否则旧构建残留的 BRK
-            # 会让"本构建不含该功能"变成谎话——桩还在，命中即走 dylib handler）。
+            # 功能未选中：若原地仍是 BRK，还原为原始字节（否则命中即为无处理器的 SIGTRAP）。
             site_file0 = base + (site_va - 0x100000000)
             cur = bytes(data[site_file0:site_file0 + 4])
             # 原字节来源：① expect ② 没写 expect 的站点（如 applog_*）从重放跳板回读
@@ -455,10 +444,10 @@ def patch_brk_hooks(data: bytearray, only_sites=None) -> list[str]:
         )
 
     # ② 审计：文件里不允许存在任何"计划外"的 BRK。原始二进制本身零 BRK（已核），
-    #    所以任何多出来的都只可能是历史残留 —— 而 dylib 收到无处理器的 SIGTRAP 会**直接闪退**
-    #    （2026-09-29 事故），宁可在这里 fail loud，也不放一份会崩的二进制出去。
+    #    所以任何多出来的都只可能是残留 —— 而 dylib 收到无处理器的 SIGTRAP 会**直接闪退**，
+    #    宁可在这里 fail loud，也不放一份会崩的二进制出去。
     allowed = {va for n, va, _r, _e in BRK_HOOKS if only_sites is None or n in only_sites}
-    allowed |= {va for _n, va, _h in RETIRED_SITES}
+    allowed |= {va for _n, va, _h in RESTORE_SITES}
     raw = bytes(data)
     stray, pos = [], raw.find(BRK_INSN)
     while pos != -1:
@@ -472,10 +461,10 @@ def patch_brk_hooks(data: bytearray, only_sites=None) -> list[str]:
             "brk 审计失败：发现计划外 BRK @ "
             + ", ".join(f"{v:#x}" for v in stray[:8])
             + (" …" if len(stray) > 8 else "")
-            + " —— 残桩命中时 dylib 没有处理器，会 SIGTRAP 闪退。"
-            " 若确认是已退役站点，把它的原始字节补进 RETIRED_SITES 后重跑。"
+            + " —— 计划外 BRK 命中时 dylib 没有处理器，会 SIGTRAP 闪退。"
+            " 确认来源后把原字节补进 RESTORE_SITES 再重跑。"
         )
-    logs.append(f"brk 审计：计划内 {len(allowed)} 站，无残桩")
+    logs.append(f"brk 审计：计划内 {len(allowed)} 站，无计划外 BRK")
     return logs
 
 
@@ -508,7 +497,7 @@ def patch_gates(data: bytearray) -> list[str]:
 def patch_ats() -> list[str]:
     """给 app 的 Info.plist 开 ATS 豁免，否则明文 HTTP 连自有服务端会被拦。
 
-    ⚠️ 关键规则（2026-09-12 踩过的坑）：iOS 10+ 上，只要 NSAppTransportSecurity
+    ⚠️ 关键规则：iOS 10+ 上，只要 NSAppTransportSecurity
     里存在 NSAllowsLocalNetworking / NSAllowsArbitraryLoadsInWebContent /
     NSAllowsArbitraryLoadsForMedia 中**任意一个**，系统就会**忽略**
     NSAllowsArbitraryLoads。而 NSAllowsLocalNetworking 只覆盖 .local 与无后缀
@@ -768,7 +757,7 @@ def check_binary(path: str) -> int:
         print("=> INVALID: stub without dylib (features would be dead)")
         ok = False
     if has_stub and not stub_v2:
-        print("=> STALE: v1 trampoline — new handler needs v2 (MOV X3,X6); regenerate stub")
+        print("=> v1 trampoline (missing MOV X3,X6) — 判定链接管需要 v2；请重新打桩")
         ok = False
     if has_stub and stub_v2 and has_dylib:
         print("=> OK: stub v2 + dylib — judge feature should report live on device")
@@ -827,10 +816,10 @@ def main():
         print(f"[!] {e}")
         sys.exit(1)
 
-    # 配对校验（2026-09-19 精简后仅剩两条）：
+    # 配对校验（两条）：
     #   ① autoplay 桩（ap_*）需要 dylib 侧处理器（"autoplay-eve v1"）；
     #   ② 链进度桩（chain_prog）需要 "chain-guard v1"。
-    # 旧 dylib + 新桩表混用会落默认处理器 → 崩，故缺标记即拒配。
+    # dylib 与桩表不配套会落默认处理器 → 崩，故缺标记即拒配。
     if any(n.startswith("ap_") for n, _s, _r, _e in BRK_HOOKS):
         marker = b"autoplay-eve v1"
         if not any(marker in open(d, "rb").read() for d in dylibs):
@@ -902,13 +891,7 @@ def main():
             sys.exit(1)
         print("[i] brk hook patched — re-sign the app before installing")
 
-    # 门禁静态补丁：**默认不应用**，须显式 --gate 打开（2026-09-28 整改）。
-    # 事故经过：合并版门禁把"下载态总查询"sub_100844774 钉成恒返"就绪"，导致全 App
-    # 的下载/更新链路静默失效——接线上服务器时表现为"cb 能同步、曲目下载全失败"，
-    # 排查绕了一大圈才怀疑到自己的补丁。默认安全 ⇒ 让主程序按真实逻辑跑。
-    # 仅当"内容全在本地、不需要下载"的离线/私服自用场景才考虑 --gate。
-    if "--no-gates" in sys.argv:
-        print("[i] --no-gates 已废弃：门禁默认关闭（要开用 --gate）")
+    # 门禁静态补丁：默认不应用，须显式 --gate 打开（表为空时为无操作）。
     do_gates = "--gate" in sys.argv
     if do_gates:
         try:
@@ -918,8 +901,6 @@ def main():
         except RuntimeError as e:
             print(f"[!] gates: {e}")
             sys.exit(1)
-        print("[!] gates patched（副作用：全 App 下载/更新提示消失；")
-        print("    接线上服务器时=曲目下载全失败，仅离线自用内容才建议开启）")
 
     with open(MAIN, "wb") as f:
         f.write(data)
@@ -934,9 +915,8 @@ def main():
         print("[!] WARNING: file smaller than slice - possible corruption")
         sys.exit(1)
 
-    # ---- 补丁清单（2026-09-28 新增）：本二进制里到底打了什么，落盘可审计 ----
-    # 教训：此前"补丁在不在、副作用是什么"只能靠人记；现在每次注入都产出一份清单，
-    # 与 dylib 侧启动自检（xrc_brk_static_report）互为对照。
+    # ---- 补丁清单：本二进制的实际补丁状态落盘，与 dylib 侧启动自检
+    # （xrc_brk_static_report）互为对照，可审计。
     import json as _json
     import datetime as _dt
     manifest = {
@@ -957,15 +937,13 @@ def main():
                       if do_brk and (sites_for(g_selected_features) is None
                                      or n in sites_for(g_selected_features))],
         "gate_patches": [
-            {"name": n, "va": hex(va), "patch": pt,
-             "effect": "下载态总查询恒返就绪 → 全 App 下载/更新链路失效"}
+            {"name": n, "va": hex(va), "patch": pt}
             for n, va, _e, pt in (GATE_PATCHES if do_gates else [])
         ],
         "dylibs": [os.path.basename(d) for d in dylibs],
     }
 
-    # ---- 状态清单（2026-10-02）：**重扫当前二进制**，而不是记"本次运行做了什么" ----
-    # 旧版 applied 只反映本次命令行旗标，曾出现"manifest 说没打桩、二进制里明明有"的误报。
+    # ---- 状态清单：**重扫当前二进制实际字节**，而非本次命令行旗标 ----
     import hashlib as _hashlib
     with open(MAIN, "rb") as f:
         cur = bytearray(f.read())
@@ -982,11 +960,11 @@ def main():
             brk_absent.append(site_name)
         else:
             brk_other.append(site_name)
-    retired_clean, retired_residual = [], []
-    for site_name, site_va, _rhex in RETIRED_SITES:
+    restore_ok, restore_left = [], []
+    for site_name, site_va, _rhex in RESTORE_SITES:
         sf = cbase + (site_va - 0x100000000)
         insn = struct.unpack_from("<I", cur, sf)[0] if sf + 4 <= len(cur) else 0
-        (retired_residual if insn == 0xD4200000 else retired_clean).append(site_name)
+        (restore_left if insn == 0xD4200000 else restore_ok).append(site_name)
     dylib_info = []
     for p in dylibs:
         b = open(p, "rb").read()
@@ -1004,7 +982,7 @@ def main():
         "judge_stub": stub_state,
         "load_dylib": has_load_dylib(cur, cbase, INJECT_NAME),
         "brk_sites": {"inplace": brk_inplace, "absent": brk_absent, "unexpected": brk_other},
-        "retired_sites": {"clean": retired_clean, "residual": retired_residual},
+        "restore_sites": {"restored": restore_ok, "still_patched": restore_left},
         "dylibs": dylib_info,
     }
 
@@ -1017,9 +995,9 @@ def main():
     _st = manifest["state"]
     print(f"[i] state(rescan): stub={_st['judge_stub']} dylib={_st['load_dylib']} "
           f"brk inplace={len(_st['brk_sites']['inplace'])}/{len(BRK_HOOKS)} "
-          f"retired residual={len(_st['retired_sites']['residual'])}")
+          f"restore pending={len(_st['restore_sites']['still_patched'])}")
 
-    # 组合守卫（2026-09-10 教训）：打桩的二进制必须同时载入 dylib，否则
+    # 组合守卫：打桩的二进制必须同时载入 dylib，否则
     # 跳板会把判定核转发给 slot（handler=0 → 直通）——游戏能玩但功能全无；
     # 反向（载入 dylib 但没打桩）则由 dylib 侧降级（judge 区禁用）。
     with open(MAIN, "rb") as f:
