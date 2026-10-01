@@ -1,7 +1,6 @@
 // © 雾月星辰 & MLXC · github@XingChenRS
 // XRCPlayer.m — 音频：registry/player/channel/进度/曲长（单一数据源）。
-// 6.13 版本的位置跟踪有双通道（vtable hook + 0.5s 轮询 NSTimer 同时更新同一批原子量，
-// 各维护一份换歌检测）——此处收敛：hook 为唯一更新源，Tweak.x 轮询仅做兜底捕获。
+// 位置跟踪：hook 为唯一更新源；Tweak.x 轮询仅做兜底捕获。
 
 #import <Foundation/Foundation.h>
 #import "XRCLog.h"    // xrc_log
@@ -49,9 +48,8 @@ void xrc_player_install(uint64_t image_base) {
         if (slot != INT_MIN)
             xrc_logd(XRCLC_BOOT, @"mtp.getpos vtable installed slot=%d (runtime anchor)", slot);
     } else if (XRC_OFF_MTP_VTABLE != 0 && XRC_OFF_MTP_GETPOS != 0) {
-        // 编译期 profile fallback。注：7.0.255 这两个常量恒非零 ⇒ 本分支恒成立，
-        // "两条路都不可用"在编译期不存在（该 else 分支会被 clang 当死代码消掉），
-        // 故不写"无锚点"分支。
+        // 编译期 profile fallback。注：7.0.255 这两个常量恒非零 ⇒ 本分支恒成立
+        //（"两条路都不可用"的 else 会被 clang 当死代码消掉，无需编写）。
         extern uint64_t xrc_image_base(void);
         int slot = xrc_swizzle_vtable(xrc_image_base() + XRC_OFF_MTP_VTABLE,
                                       XRC_OFF_MTP_GETPOS,
@@ -89,8 +87,7 @@ void xrc_player_update_position(void *self, uint32_t pos) {
         atomic_store(&s_max_seen_ms, pos);
         return;
     }
-    // 旧写法是 atomic_exchange 后再比 pos > max_seen，左侧刚被写成 pos，判据恒假 ——
-    // 结果 max_seen 退化成"当前位置"。这里改成真正的最大值。
+    // 取真正的最大值：先读 prev 再比较写回（若先 exchange 写入，比较将恒假）。
     if (pos > prev) atomic_store(&s_max_seen_ms, pos);
 }
 
@@ -112,10 +109,8 @@ void xrc_player_try_capture_length(void *player) {
     void *snd = NULL;
     if (!s_get_current_sound) return;
     if (s_get_current_sound(ch0, &snd) != 0 || !snd) return;
-    // 判据是"这个 Sound 解过没有"，不是"曲长非 0 就跳过"。
-    // 旧写法的清零路径只有 player/channels 指针变化一处，而真机上这两个指针跨歌不变，
-    // 于是第一首歌解出来的长度被永久钉死 —— 面板 timeLabel 的总时长永远是那首歌的
-    // （现象："一首歌三分钟，条锁死一分三十"，换几首都不变）。
+    // 判据用 Sound 身份（s_len_snd）：player/channels 指针跨歌不变，不能当换歌信号，
+    // 否则曲长会停留在第一首歌。
     if (snd == atomic_load(&s_len_snd) && atomic_load(&s_song_len_ms) != 0) return;
     uint32_t len = 0;
     if (s_get_sound_length && s_get_sound_length(snd, &len, 1) == 0 &&

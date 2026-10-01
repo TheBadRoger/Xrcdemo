@@ -5,10 +5,10 @@
 //   播放（时间轴/±5s/速度/音乐变速/回跳重播）｜循环（设 A/B + 开关 + 重置）
 //   ｜判定窗口（四档 + 应用 + 自动演奏）｜解锁（构建期功能集逐项显隐）｜网络（私域改写，地址折叠）
 //   ｜存储（cb 外置）｜诊断（状态两行 + 开发构建专属工具区）。
-// 交互约定（与设计稿对齐，改这里=改设计）：开关=「名称+状态点」（XRCSwitchRow，tone 控色）；
+// 交互约定（与设计稿对齐）：开关=「名称+状态点」（XRCSwitchRow，tone 控色）；
 //   动作=灰底按钮；破坏性=红字靠右；状态数字只进只读行；控件一律属性引用；
 //   长按任一开关看该项说明；面板位置/日志档位等全部经 XRCConfig（单一事实源）。
-// 控件已拆出：XRCTimelineView.h/.m、XRCSwitchRow.h/.m。
+// 控件在 XRCTimelineView.h/.m、XRCSwitchRow.h/.m。
 
 #import "XRCPracticePanel.h"
 #include <string.h>
@@ -863,7 +863,7 @@ static NSString *const kNoteDev =
         [self refresh];                                                                 \
     } while (0)
 
-- (void)toggleOwn      { XRC_TOGGLE_SWITCH(unlock_own, xrc_brk_set_unlock_own, @"拥有链：三层恒真（实测无效，保留兜底）", @"拥有链：恢复原判定"); }
+- (void)toggleOwn      { XRC_TOGGLE_SWITCH(unlock_own, xrc_brk_set_unlock_own, @"拥有链：三层恒真（覆盖未授予场景）", @"拥有链：恢复原判定"); }
 - (void)toggleFv       { XRC_TOGGLE_SWITCH(unlock_fv,  xrc_brk_set_unlock_fv,  @"FV 锁：五难度全解", @"FV 锁：恢复原判定"); }
 - (void)toggleDo       { XRC_TOGGLE_SWITCH(unlock_do,  xrc_brk_set_unlock_do,  @"DO 锁：五难度全解（显示专属曲绘）", @"DO 锁：恢复原判定"); }
 - (void)toggleGate     { XRC_TOGGLE_SWITCH(gate_open,  xrc_brk_set_gate_open,  @"链门：放行（整表解锁总闸）", @"链门：恢复原判定"); }
@@ -906,7 +906,7 @@ static NSString *const kNoteDev =
 }
 
 // 音乐变速：开 = BGM 跟着速度走且保音高（FMOD 通道速率 + 内置移调 DSP）；
-// 关 = 立刻把音高复位到 1.0（只 warp 谱面时钟，老行为）。
+// 关 = 立刻把音高复位到 1.0（只 warp 谱面时钟）。
 - (void)toggleSpeedAudio {
     xrc_config_t c; xrc_config_load(&c);
     c.speed_audio = !c.speed_audio;

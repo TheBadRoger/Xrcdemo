@@ -1,7 +1,5 @@
 // © 雾月星辰 & MLXC · github@XingChenRS
 // XRCClock.m — 时间基准：真实时间单一实现 + warp 计算 + freeze。
-// 6.13 Tweak.x 中"取真实时间"被复制 4 份（_real_now_us_unwarped /
-// freeze_inc / freeze_dec / set_rate），此处收敛为单实现。
 
 #import <Foundation/Foundation.h>
 #import "XRCLog.h"          // 拒绝非法 rate 时留痕

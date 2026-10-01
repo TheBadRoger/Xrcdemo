@@ -44,7 +44,7 @@
 // note 对象字段（外部参考实现 seek_to 的"重新武装"逐字 + 7.0 判定核交叉验证）
 //   +0x00 vtable（类型判据：Hold / Arc 各一）
 //   +0x0C 判定态字（16 位；外部参考实现回退 seek 时清它来重新武装 —— 这是 replay 要清的核心）
-//   +0x18 音符时间 —— **本文件早已有 XRC_NOTE_TIME_OFF=24**，与此处独立吻合，
+//   +0x18 音符时间 —— 与 XRC_NOTE_TIME_OFF=24 独立吻合，
 //         且 7.0 判定核 sub_10091E684 的 `v6 = a2[6]` 也是它 ⇒ 跨版本一致
 //   +0x1C 次时间（dword）—— 外部参考实现的判据是 `+24 >= t || +28 > t`
 //   +0x30 / +0x5C / +0xA0  类型专属重武装字段（外部参考实现对其中一类清这三个）
@@ -123,8 +123,8 @@
 #define XRC_PLAYER_PAUSE_SLOT_OFF    (0x30)           // vtable 槽 6
 #define XRC_OFF_CH_GET_POSITION      (0x1033BBCULL)   // Channel::getPosition（内层同源）
 #define XRC_OFF_GET_CURRENT_SOUND    (0x103415CULL)   // Channel::getCurrentSound（日志串已验）
-// 未定位（进度条用 max_seen 兜底；P1 补）：get_sound_length
-// 不再需要（getpos hook 直接缓存 player 实例）：get_registry
+// get_sound_length：未定位（进度条用 max_seen 兜底）。
+// get_registry：由 getpos hook 缓存 player 实例替代。
 #define XRC_OFF_GET_REGISTRY        0
 #define XRC_OFF_GET_SOUND_LENGTH    0
 #define XRC_REG_PLAYER_OFF          (8)

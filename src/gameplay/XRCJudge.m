@@ -249,7 +249,7 @@ bool xrc_judge_install(uint64_t image_base) {
 }
 
 void xrc_judge_set_windows(int max_ms, int pure_ms, int far_ms, int lost_ms) {
-    // UI 四档语义 → 判定级联阈值（与旧 CMP 架构的映射保持一致）：
+    // UI 四档语义 → 判定级联阈值：
     //   Max  → Pure 上界（默认 25）
     //   Pure → Far  上界（默认 50）
     //   Far  → Lost 上界（默认 100）

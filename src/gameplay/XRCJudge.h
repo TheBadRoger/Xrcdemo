@@ -26,7 +26,7 @@ bool xrc_judge_is_active(void);
 void xrc_judge_set_autoplay(bool on);
 bool xrc_judge_autoplay(void);
 
-// 强制 Pure 落账 + 特效（供 XRCHook.m 的 autoplay 站点处理器复用；2026-09-18）。
+// 强制 Pure 落账 + 特效（供 XRCHook.m 的 autoplay 站点处理器复用）。
 // 参数：ng = note group（stats/特效对象宿主）；note = 目标音符；judge_time = 判定时刻 ms。
 // 内部：commit(stats, note, 0, 0, judge_time, input=-1) + fx[1](fx, note, 0, 0)。
 // 语义/配方出处：外部参考实现实件 on_miss（功能账 §5/§5.2）。

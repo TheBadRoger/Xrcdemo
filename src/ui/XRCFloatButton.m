@@ -49,9 +49,9 @@ static const char kIconB64[] =
         _icon.userInteractionEnabled = NO;
         [self addSubview:_icon];
 
-        // 版本号常显在球底（短 sha）。为什么值得占这点地方：iOS 对已签名二进制有缓存，
-        // "重启了但没换版" 和 "换了版但行为没变" 在设备上看起来一模一样 —— 有这行就能
-        // 自己确认，不必每次找我翻日志。每次发新版都会带新的 ci 构建号。
+        // 版本号常显在球底（短 sha）：iOS 对已签名二进制有缓存，"重启了但没换版"与
+        // "换了版但行为没变"在设备上看起来一样——有这行即可在设备上自行确认当前版本。
+        // 每次发版都会带新的 CI 构建号。
         {
             NSString *stamp = @(XRC_BUILD_STAMP);
             NSRange dash = [stamp rangeOfString:@"-"];

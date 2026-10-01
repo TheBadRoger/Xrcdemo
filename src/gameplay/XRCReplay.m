@@ -7,7 +7,6 @@
 //   复活与重建：collect_live → revive（登记）→ rebuild（渲染工厂重建，主队列 FIFO）
 //   编排：reset（清分→…→开闸门→自检）、谱面表看门狗（含自愈写）、弧分段「不藏」窗口
 //   引擎：fast_tick（50ms 检出）+ 常驻线程
-// 纪律：所有真机验证过的阈值/守卫逐字保留。
 
 #import <Foundation/Foundation.h>
 #import <mach/mach.h>
@@ -43,9 +42,8 @@ static uint64_t rd64(uint64_t addr) { uint64_t v = 0; rd(addr, &v, 8); return v;
 static uint8_t  rd8(uint64_t addr)  { uint8_t  v = 0; rd(addr, &v, 1); return v; }
 
 // ---------------------------------------------------------------- 布局锚点（IDA 实证）
-// scene+0x3A0 = note group（计数区在 +0x38）；*(scene+0x360) = 音符管理器
-// → 其 +0xA0/+0xA8 = 音符指针数组 begin/end（8B/项；+0x100/+0x108 = 全谱表，含已判音符）。
-#define RPF_MGR_OFF    0x360
+// scene+0x3A0 = note group（计数区在 +0x38）；ng+0xA0/+0xA8 = 活动窗口音符指针数组
+// begin/end（8B/项）；ng+0x100/+0x108 = 全谱表（含已判音符）。
 #define RPF_VEC_BEGIN  0xA0
 #define RPF_VEC_END    0xA8
 #define RPF_VEC2_BEGIN 0x100
@@ -54,7 +52,7 @@ static uint8_t  rd8(uint64_t addr)  { uint8_t  v = 0; rd(addr, &v, 1); return v;
 #define RPF_RENDERMGR  880            // 音符视觉层 = *(scene+880)：整个渲染管理器（0x3A8 字节，
                                       // vtable off_1014EDB68；渲染工厂 sub_100B22984 的第一个参数）
 #define RPF_TICK_MS      50           // 快路径周期；回跳可能发生在任意时刻，重置必须即时
-#define RPF_HEAVY_EVERY  20           // 20 × 50ms = 1s（保留常量，重活段未随迁）
+#define RPF_HEAVY_EVERY  20           // 20 × 50ms = 1s（保留常量备用）
 
 // ---------------------------------------------------------------- 指针判据
 // 堆块首地址判据（8B 对齐 + 地址区间）。
@@ -233,7 +231,6 @@ static int rpf_note_consumed(uint64_t note) {
 }
 
 // ================================================================ 重播功能主线
-// 直连化：host ABI / dlsym 包装统一收拢为本文件内直接调用。
 extern void xrc_arc_nohide_set(int on);   // XRCHook 导出
 extern void xrc_ap_latch_reset(void);     // XRCHook 导出
 extern void xrc_freeze_end(void);         // XRCGameplay 导出
@@ -503,7 +500,7 @@ static void rpf_score_reset(uint64_t ng, uint32_t now) {
 //   谱面命令隐藏过的桶（黑线 / 弧键 / hold / arc）回跳后依然 `+0x55 == 1` ⇒ 渲染节点被 setVisible(0)
 //   ⇒ 完全不显示。只有那些没被命令覆盖到的弧还在（"偶尔的弧末端"）。
 //
-// 修法：回跳时对"桶时间 >= T"的桶**调用引擎自己的 setter 置 0**（不自造写）。
+// 做法：回跳时对"桶时间 >= T"的桶**调用引擎自己的 setter 置 0**（不自造写）。
 //   谱面命令会在播放头再次越过时自然重放，所以这里清掉是正确的语义。
 typedef void (*rpf_setbucket_t)(uint64_t chart, uint32_t idx, uint32_t val);
 
@@ -561,7 +558,7 @@ typedef uint64_t (*rpf_reg_note_t)(uint64_t ng, uint64_t note);
 // **它是 `a3 - *i <= 9` 而不是 `|a3 - *i| <= 9`** ⇒ 只要表里存着一个**比新事件更大的时间**，
 // 之后所有更小时间的事件全部 `<= 9` 成立 ⇒ 被静默吞掉。而且吞掉时不写表 ⇒ **旧的大时间永远
 // 出不去**（表只在成功派发后才丢最旧一条）⇒ 回跳一次之后**永久失声**——即"没有音效"。
-// 修法：把表里的时间逐个改成一个极小值（见下方实现注释；不动 begin/end/cap）。
+// 做法：把表里的时间逐个改成一个极小值（见下方实现注释；不动 begin/end/cap）。
 static int rpf_clear_event_dedup(void) {
     uint64_t app = 0;
     uint64_t gaddr = g_xrc.image_base + (0x101673DD8ULL - 0x100000000ULL);
@@ -616,8 +613,7 @@ static int rpf_clear_touch_state(uint64_t note, rpf_touch_t *st, int verbose) {
        拿"长条的被接住位"去清弧，等于动一个未验证字段 ⇒ 弧这边只记不清。 */
     if (held && is_hold) { if (wr8(note + 0xA8, 0)) { n++; st->held = held; } }
     /* 弧 sprite 不写：sub_100187618(note) 返回的是"当前头段对象"，直接按 sprite 偏移写
-       是在猜布局（实测清掉残留后画面也无变化）——只保留 +0x64/+0xA8 这两个
-       XRCProfile.h 里有出处的。 */
+       是在猜布局——只保留 +0x64/+0xA8 这两个 XRCProfile.h 里有出处的。 */
     /* ---- 引擎"只在音符播完之后才做"的收尾，替它在回跳这一刻做一遍 ----
        出处（全部逐条反汇编确认）：
          note+0x99  弧 slot3 sub_100187B38: `if (arc+0x18 < cur) *(u8*)(arc+0x99)=1`（只置，无 else）
@@ -652,10 +648,9 @@ static int rpf_clear_touch_state(uint64_t note, rpf_touch_t *st, int verbose) {
                     0x100187c14  STR  W9,[X8,#0x2C]      ← **4 字节 = -1**
                     0x100187c18  STRB WZR,[X8,#0x30]     ← **1 字节**
                ⚠ 若把这三个偏移全打在 ① 上、且 +0x24/+0x30 用 4 字节 ⇒ **堆溢出**：
-                 ① 那个对象很小，wr32(head+0x30, 0) 正好啃在隔壁 new(0x30) 的 map
+                 ① 那个对象很小，wr32(head+0x30, 0) 会啃在相邻 new(0x30) 的 map
                  节点头上，把它的 left 指针低 32 位清零 ⇒ 根变成 0x200000000 ⇒
-                 ~LogicChart 崩（真机 head=0x280e449c0 → 被清零的槽正是
-                 0x280e449f0 = head+0x30）；同一笔写也是弧/黑线/长条显示异常的元凶。 */
+                 ~LogicChart 崩。 */
             uint64_t head = 0;
             if (rd(note + 0xE0, &head, 8) && s_isptr(head)) {
                 uint8_t h11 = 0;
@@ -695,7 +690,7 @@ typedef uint64_t (*rpf_get68_t)(uint64_t obj);
 typedef void     (*rpf_slot42_t)(uint64_t obj, uint64_t v);
 
 // ---- 弧造型子节点的「原始位置」存档 ----
-// 只把被藏掉的子节点显回来不够 —— 真机反馈「出现了，但还是碎的」。
+// 只显回来不够：显回的节点位置仍是挪过头的旧值 ⇒ 看得见但是碎的。
 // 把整条链读完，机制是死的：
 //   · 弧 tick sub_100AFFC10 的子节点循环（0x100affde4 起）与 sub_100AFFA90 全文，
 //     对子节点**只做两件事**：`child->vt[42](child, 0)`（藏），或
@@ -706,7 +701,7 @@ typedef void     (*rpf_slot42_t)(uint64_t obj, uint64_t v);
 //   ⇒ 一条**还没开始**的弧，它的子节点一定没被动过（位置 = 建对象时 sub_100AFF158
 //     按 arc+0x100 那张 12 字节段表摆出来的曲线布局）。
 //   ⇒ 回跳到弧开始之前时：显回来的子节点位置仍是**上一遍挪过头的那批** ⇒ 看得见但是碎的。
-// 修法：趁弧还没开始，把每个子节点的原始坐标（child+0x2C0 的 float3）存一份；
+// 做法：趁弧还没开始，把每个子节点的原始坐标（child+0x2C0 的 float3）存一份；
 //       回跳时先写回原始坐标、再 `vt[42](child,1)`。存与取都用同一个槽、同一个偏移。
 #define RPF_CPOS_N 8192
 typedef struct { uint64_t child; float x, y, z; } rpf_cpos_t;
@@ -916,8 +911,8 @@ static void rpf_revive_main(void *ctx) {
         uint64_t mb = 0, me = 0;
         /* 这一段是「在主队列上跑引擎自己的登记函数」。崩溃的表是 chart+0x80 的内联
            multimap（见 rpf_cmap_walk 注释），**它和这段代码操作的对象不是同一张表**
-           （这里是 ng+0x88 的元素 = new(0x18) 的桶 map），但为了一次把嫌疑排除干净，
-           在这一段的前后各走一遍谱面表：如果"复活前健康、复活后非法"，那就是这段代码。 */
+           （这里是 ng+0x88 的元素 = new(0x18) 的桶 map）；本段前后各走一遍谱面表以
+           界定写入来源：复活前健康、复活后非法 = 本段所写。 */
         uint64_t chart = 0;
         if (rd(ng + 0x28, &chart, 8) && !s_isptr(chart)) chart = 0;
         int bad_before = chart ? rpf_cmap_walk(chart, "复活前", 0) : 0;
@@ -1197,7 +1192,7 @@ static void rpf_revive(uint64_t ng, uint32_t T, uint32_t P, int do_write,
                （准入也调 sub_100922998，它会建节点）⇒ 并发改树 ⇒ 树结构损坏
                （崩溃链：场景析构 sub_100CAA334 → 递归删树 sub_100913A40，
                KERN_INVALID_ADDRESS + "possible pointer authentication failure"）。
-               修法：把插入整批丢到主队列 —— 主队列与游戏 tick 同在主线程、由同一个
+               做法：把插入整批丢到主队列 —— 主队列与游戏 tick 同在主线程、由同一个
                runloop 串行执行（外层 XRCGameplay 的 xrc_gameplay_update 就是主线程 tick），
                所以不会与准入并发。清理那几个字节是单字节写、与引擎的单字节写撞上也无害，
                仍留在原线程做。 */
@@ -1349,7 +1344,7 @@ static void rpf_reset(uint64_t ng, uint32_t T, uint32_t P) {
         xrc_logd(XRCLC_JUDGE, @"[rpf] ⟲⟲⟲ 自检：T 之后 %d 条音符（tap 族 %d / 长条 %d / 未知类 %d），"
                "判据仍为 1 的 = %d（要求 0）",
                v.seen, v.tap, v.lng, v.other, v.still);
-        // ★ 验收：重登记之后 map 的覆盖起点必须落到 T 附近（≈ T）。
+        // 重登记后 map 覆盖起点应落在 T 附近。
         xrc_logd(XRCLC_JUDGE, @"[rpf] ⟲⟲⟲ 自检·map 起点：tmin=%d tmax=%d（T=%u）",
                v.tmin, v.tmax, T);
     }
@@ -1471,7 +1466,7 @@ static void rpf_cmap_stage(uint64_t ng, const char *stage) {
     rpf_cmap_walk(chart, stage, 0);
 }
 
-// ---------------------------------------------------------------- 重置挪主队列（竞态修复）
+// ---------------------------------------------------------------- 重置在主队列执行（与游戏 tick 串行）
 // 症状是**低概率随机**（弧超界 / 不显示 / 幽灵事件），不是规律触发 ⇒ 指向**竞态**：
 // 快路径跑在自己的 pthread 上（本文件 rpf_thread），而重置的六笔清洗（清分 / 解除消费 /
 // 开闸门 / 触摸态 / 事件去重表 / 重登记）若在那条线程上直接落笔，就与游戏主线程并发
@@ -1622,20 +1617,14 @@ static void rpf_fast_tick(void) {
         if (rd(ng + 0x30, &clk, 8) && s_ishp(clk)) {
             uint32_t now = rpf_now_ms(ng);
             rpf_nohide_tick(now);   /* 回跳窗口的收尾（涨回旧水位/超时即关） */
-            // ★★★ 崩溃真因（真机日志逐行对上的）：
-            //   原先这里是无符号比较 `now + 300 < s_seek_wm`。而**前导期播放头是负的**，
-            //   `rpf_now_ms` 返回的 uint32 就落在 UINT32_MAX 附近：
-            //       真机：检出回跳：4294966955 → 4294967005（回落 4294967246 ms）
-            //   即 now = -291，s_seek_wm = -341，而 `now + 300` 回绕成 **9**，
-            //   `9 < 4294966955` 成立 ⇒ **播放头只要落进"距 UINT32_MAX 不足 300"的那一段
-            //   （正是每首歌的前导期）就被误判成回跳** ⇒ 在歌曲刚开始播放时触发重建。
-            //   修：**改成有符号比较**。`-291 + 300 = 9 < -341` 为假 ✓；
-            //   真正的回跳（30000 → 0）`0 + 300 < 30000` 仍为真 ✓。
+            // 必须用**有符号比较**：前导期播放头为负，`rpf_now_ms` 返回的 uint32 落在
+            //   UINT32_MAX 附近（真机：4294966955 → 4294967005），无符号下 `now + 300`
+            //   回绕成 9 ⇒ 每首歌的前导期都会被误判成回跳。有符号下
+            //   `-291 + 300 = 9 < -341` 为假；真正的回跳（30000 → 0）`0 + 300 < 30000` 仍为真。
             int32_t dnow = (int32_t)now, dwm = (int32_t)s_seek_wm;
-            /* 垃圾闸门：退场/过场时引擎字段会读成亿级野值。真机野值串（1147371520 → 0 等）
-               里有两条落进旧区间 [0,3600000)，**真的派发过带垃圾 P 的重置**——在垂死的
-               场景上跑重置有污染下一首的风险。现在只采信 [-60s, 10min] 内的读数；
-               野值一律不更新水位线、不检出。 */
+            /* 垃圾闸门：退场/过场时引擎字段会读成亿级野值——在垂死的场景上跑带垃圾 P 的
+               重置有污染下一首的风险。只采信 [-60s, 10min] 内的读数；野值不更新
+               水位线、不检出。 */
             if (dnow < -60000 || dnow > 600000) {
                 /* 野值：忽略 */
             } else if (s_seek_wm && dnow + 300 < dwm) {

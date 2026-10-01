@@ -68,8 +68,7 @@ uint64_t xrc_image_base(void) {
 
 #pragma mark - 菜单（UI 逻辑，配置读写走 XRCConfig）
 
-// 练习面板桥接：保留 XRCMenuBridge 类名（供 UIWindow hook 引用），
-// 内部转发到 XRCPracticePanel（ArcCreate 同构）。
+// 练习面板桥接：XRCMenuBridge 供 UIWindow hook 引用，转发到 XRCPracticePanel。
 @interface XRCMenuBridge : NSObject
 + (instancetype)shared;
 - (void)show;

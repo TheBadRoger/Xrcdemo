@@ -139,8 +139,8 @@ static void s_compensate(void *ch, double rate) {
 }
 
 // 移调 DSP 的参数单位是**比率**（FMOD 2.x：0.5..2.0，默认 1.0 = 不改变音高；
-// 0.5 = 低一个八度、2.0 = 高一个八度）。**不是半音** —— 我一度按 FMOD 1.x 的
-// 半音语义（−12..12）"修正"过，差点铸成回归；本机 DSP 描述串是权威证据：
+// 0.5 = 低一个八度、2.0 = 高一个八度）；FMOD 1.x 的半音语义（−12..12）不适用。
+// 本机 DSP 描述串是权威证据：
 //   0x1013d7711  "Pitch value.  0.5 to 2.0.  Default = 1.0. 0.5 = one octave down,
 //                 2.0 = one octave up.  1.0 does not change the pitch."
 //   （同段还有 "FFT size" 0x1013d7787 / "Max channels" 0x1013d78df，

@@ -19,7 +19,7 @@
 //   · 功能处理器（恒编译）：cb 验证链 / 锁态 / 链门 / autoplay / 弧分段「不藏」。
 //   · 开发构建专属（XRC_DEBUG_BUILD）：applog 明文/密文捕获（2×1MB 缓冲）、弧/绘制
 //     观测环（arcr）、观测桩处理器、观测桩轻量；发布构建下各处理器为空操作桩。
-//     隔离采用编译轴而非物理拆件——跨文件 static 重组风险高、收益低。
+//     隔离采用编译轴：物理拆分需跨文件重组 static，风险高、收益低。
 #define _XOPEN_SOURCE 700
 #include <ucontext.h>
 #undef _XOPEN_SOURCE

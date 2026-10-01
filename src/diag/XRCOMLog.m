@@ -237,8 +237,8 @@ void xrc_om_probe(void) {
 }
 
 // 立刻把两份 BRK 捕获落盘。
-// 为什么不能等定时器：强发会崩（伪造的 cb 被当回调用），进程在调用后 ~60ms 就没了，
-// 而定时器 0.5s 才跑一次 —— 上一次 applog-1.bin 就是这么丢的。
+// 不能等定时器：强发会崩（伪造的 cb 被当回调用），进程在调用后 ~60ms 就没了，
+// 而定时器 0.5s 才跑一次 —— 必须当拍落盘。
 static void s_flush_captures(void) {
     NSString *dir = [NSSearchPathForDirectoriesInDomains(
                         NSDocumentDirectory, NSUserDomainMask, YES).firstObject

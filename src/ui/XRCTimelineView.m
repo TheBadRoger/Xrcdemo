@@ -1,5 +1,5 @@
 // © 雾月星辰 & MLXC · github@XingChenRS
-// XRCTimelineView.m — 时间轴控件实现（自 XRCPracticePanel.m 原样拆出）。
+// XRCTimelineView.m — 时间轴控件实现。
 #import "XRCTimelineView.h"
 
 @implementation XRCTimelineView {

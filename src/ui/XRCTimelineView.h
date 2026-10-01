@@ -1,6 +1,5 @@
 // © 雾月星辰 & MLXC · github@XingChenRS
 // XRCTimelineView.h — 面板时间轴控件（点击/拖动 = seek 预览，松手执行；循环区间可视化）。
-// 自 XRCPracticePanel.m 拆出（重构方案 §9）。
 #pragma once
 
 #import <UIKit/UIKit.h>

@@ -1,9 +1,9 @@
 // © 雾月星辰 & MLXC · github@XingChenRS
 // XRCOMLog.h — OnlineManager 探针 + applog 强发。
 //
-// 动机：applog（OnlineManager 槽 72 = sub_100623AEC）在真机上从未触发过，
-// 静态也找不到调用方（全二进制只有 vtable 一处 data 引用 → 纯虚分派）。
-// 于是换两条互补的路：
+// 动机：applog（OnlineManager 槽 72 = sub_100623AEC）静态找不到调用方
+//（全二进制只有 vtable 一处 data 引用 → 纯虚分派），真机观测也未见触发。
+// 因此提供两条互补的路：
 //   1. 探针：按 vtable 指针定位 OnlineManager 单例，把它身上的累加器 / 载荷
 //      字段（+0xf0/+0xf8/+0x100/+0x108/+0x128/+0x130…）读出来落日志
 //      —— 回答"累加器有没有在涨、阈值是多少"。

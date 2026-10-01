@@ -2,7 +2,7 @@
 // XRCGameplay.m — gp.update hook + 谱面钟 retime + seek（含循环）。
 // seek 平移 = 音频 seek + 谱面钟 base 平移（判定比较 |note - (cur - base)|，
 // 所以 base -= (cur - target) 即整体平移）。
-// 循环 / 重打 / 换歌的玩法语义见文件尾部「循环 / 自动重建」区块的注释。
+// 循环 / 重打 / 换歌的玩法语义见文件尾部「循环 / retry 回位」区块的注释。
 
 #import <Foundation/Foundation.h>
 #import "XRCLog.h"    // xrc_log
@@ -74,7 +74,7 @@ static void *s_valid_note_group(void *scene) {
 
 // ---- retry 监视器 ----
 // 场景：开启循环或 seek 定位后，游戏中暂停 → Retry（引擎重建场景）。
-// 判据（比时钟跳变确定得多）：**音频位置的帧间大回跳**——retry 重建场景会让音频
+// 判据：**音频位置的帧间大回跳**——retry 重建场景会让音频
 // 从曲尾/当前点回到曲首（jump < -10s），单点演奏不可能产生。
 // 触发后写一个 pending seek（目标=capture）；deferred 状态机在**新场景**的下一帧
 // 才执行（旧场景已被 retry 销毁，同一帧不可用）。执行后解除（一次性）。
@@ -85,8 +85,8 @@ static _Atomic(bool)     s_cap_valid = false;   // 音频基准是否已建立
 static int32_t           s_prev_audio_ms = -1;
 // **自家 seek 标记**。帧内时序（见下）：s_exec_pending 下完 seek 后，音频位置要到下一帧
 // 才真的落位（真机实测："pos 25045 -> 25045" 立即读是旧值）⇒ watcher 在下一帧必然看到
-// 一次大回落。没有这个标记，循环开着时会把它当成外部 retry 再补一次 seek（成对重置
-// #6→#7 / #8→#9 的成因）；有标记则只消账、不动作。
+// 一次大回落。没有这个标记，循环开着时会把它当成外部 retry 再补一次 seek；有标记则
+// 只消账、不动作。
 static _Atomic(uint64_t) s_own_seek_us = 0;
 #define XRC_OWN_SEEK_WIN_US  (3000 * 1000ULL)   // 自家 seek 的豁免窗：3s
 
@@ -427,7 +427,7 @@ static void s_gp_retime_logic_clock(void *note_group) {
         // 分数部分必须累积：逐帧截断是有系统性偏差的。
         // 60fps 时 delta_ms 被截成 16（真值 16.67），rate=0.8 每帧要补 3.33ms，
         // 截断后只补 3ms —— 每帧少 0.33ms，一秒就是 20ms，三分钟的歌累计漂 3.6 秒。
-        // 这种"越到后面越不同步"正是它，而不是别的。
+        // 这就是系统性漂移的来源。
         s_retime_acc += (1.0 - rate) * (double)delta_ms;
         adjust = (int32_t)s_retime_acc;
         s_retime_acc -= (double)adjust;
@@ -545,7 +545,7 @@ void xrc_gameplay_install_hooks(uint64_t image_base) {
 }
 
 
-#pragma mark - 循环 / 自动重建（玩法语义说明）
+#pragma mark - 循环 / retry 回位（玩法语义说明）
 
 /* ───────────────────────── 数据流总览 ─────────────────────────
  *

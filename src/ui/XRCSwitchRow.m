@@ -1,5 +1,5 @@
 // © 雾月星辰 & MLXC · github@XingChenRS
-// XRCSwitchRow.m — 开关行实现（自 XRCPracticePanel.m 拆出；tag→tone）。
+// XRCSwitchRow.m — 开关行实现（tone 控色）。
 #import "XRCSwitchRow.h"
 #import "WHToast/WHToast.h"
 

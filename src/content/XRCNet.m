@@ -542,7 +542,7 @@ static void s_install_other_stacks(void) {
 //   （只有 didReceiveResponse / didFailWithError / willSendRequestForAuthenticationChallenge）
 //   ⇒ NSURLConnection 遇到 302 时**自己在内部**按 Location 发起下一跳，新请求**不经过**
 //   `initWithRequest:` 的改写 —— 这正是"服务器 302 到 CDN 后下载失败"的机制。
-// 修法：用 `class_addMethod` 给该委托类**补上**这个回调，把系统提出的"下一跳请求"过一遍
+// 做法：用 `class_addMethod` 给该委托类**补上**这个回调，把系统提出的"下一跳请求"过一遍
 //   `s_rewrite`；命中白名单就改写、否则**原样返回**（= 系统默认行为，零副作用）。
 //   未命中白名单时额外打一行提示（点名该把哪个主机加进 netMatch），便于线上服务器排障。
 static NSURLRequest *s_will_send(id self_, SEL _cmd, NSURLConnection *c,
