@@ -1,0 +1,315 @@
+<!doctype html>
+<!--
+  练习面板 · UI 语义预览稿 v3（2026-10-02 规范化重构设计）
+  © 雾月星辰&MLXC/github@XingChenRS
+  本稿要点：
+    · 面板加宽（时间轴全长展示播放进度）
+    · 「回跳重播」为单一开关，并入「播放」区
+    · 「自动演奏」归入「判定窗口」
+    · 私服地址折叠展示，展开可编辑
+    · 标题栏含版本号；面板底部含版权行；诊断区只读状态压缩为两行
+    · 「开发」分区（日志档位、转储、探针、强发、观测桩）随开发构建提供；
+      发布构建为最小日志面
+    · 悬浮球保持现状样式（图标 + 球底构建号；单击/长按/拖拽三手势）
+  与 ObjC 实现共用 metric：pad 12 / gap 8 / rowH 30 / 圆角 6；标题栏固定，内容区可滚动（上限 72% 屏高）。
+  语义规则：
+    · 开关类 =「名称 + 状态点」：开=彩色填充+实心点，关=深灰+空心点
+    · 动作类 = 深灰底白字，无状态点；破坏性动作 = 深灰底红字、靠右、字号小
+    · 开发构建专属控件 =「开发」标记并置于虚线分区内
+    · 状态数字集中在「网络/诊断」的只读行里，不塞进按钮标题
+    · 每个分区一行小标题（左=名称，右=一句话说明）；长按任一项 = 查看该项说明
+-->
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>xrcdemo · 面板预览 v3</title>
+<style>
+  :root{
+    --pad:12px; --gap:8px; --row:30px; --panel:rgba(13,13,13,.94);
+    --card:#1a1a1a; --line:rgba(255,255,255,.05);
+    --btn:#3a3a3a; --net:#0f7a7a; --on:#99215c; --txt:#fff; --dim:#9a9a9a; --dim2:#6f6f6f;
+    --accent:#2ea3a3; --accent-soft:#9fe3e3; --danger:#e06666; --ok:#7fd6a1;
+  }
+  *{box-sizing:border-box;-webkit-user-select:none;user-select:none}
+  body{margin:0;background:#161616;font:13px -apple-system,"SF Pro Text","PingFang SC",sans-serif;color:var(--txt)}
+  /* ── 预览页外壳（非产品 UI） ── */
+  .pagehead{display:flex;align-items:center;justify-content:center;gap:12px;padding:14px 0 0;flex-wrap:wrap}
+  .pagehead .cap{font-size:11px;color:var(--dim2)}
+  .seg{display:flex;background:#2c2c2c;border-radius:6px;overflow:hidden}
+  .seg .opt{min-width:64px;height:26px;display:flex;align-items:center;justify-content:center;
+            font-size:11px;color:var(--dim);cursor:pointer;padding:0 10px}
+  .seg .opt.sel{background:#4a4a4a;color:#fff}
+  .stage{display:flex;gap:22px;justify-content:center;align-items:flex-start;flex-wrap:wrap;padding:16px 12px 28px}
+  /* ── 手机壳 ── */
+  .phone{width:460px;max-width:96vw;background:#232323;border-radius:28px;padding:10px}
+  .panel{background:var(--panel);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;max-height:620px}
+  .titlebar{display:flex;align-items:center;height:34px;padding:0 10px;flex:0 0 auto;background:#191919}
+  .titlebar .t{flex:1;font-weight:600;font-size:15px}
+  .titlebar .t .ver{font-size:11px;font-weight:500;color:#8a8a8a;font-family:ui-monospace,Menlo,monospace;margin-left:6px;vertical-align:1px}
+  .titlebar .info{width:26px;height:26px;line-height:24px;text-align:center;border-radius:6px;color:#8fd3d3;font-size:14px;margin-right:4px}
+  .titlebar .x{width:26px;height:26px;line-height:24px;text-align:center;border-radius:6px;color:#cfcfcf;font-size:14px}
+  .body{overflow-y:auto;padding:8px var(--pad) var(--pad);flex:1 1 auto}
+  /* ── 分区与卡片 ── */
+  .sec{margin-top:10px;display:flex;align-items:center;gap:6px}
+  .sec:first-child{margin-top:2px}
+  .sec .lbl{font-size:10px;letter-spacing:.08em;color:var(--dim);text-transform:uppercase}
+  .sec .hint{font-size:10px;color:var(--dim2);margin-left:auto;text-align:right}
+  .sec .act{margin-left:auto}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px;margin-top:6px}
+  .row{display:flex;align-items:center;gap:var(--gap)}
+  .row+.row{margin-top:var(--gap)}
+  .cardsep{border-top:1px solid var(--line);margin:8px 0}
+  /* ── 控件 ── */
+  .btn{height:var(--row);border-radius:6px;background:var(--btn);display:flex;align-items:center;
+       justify-content:center;font-size:13px;font-weight:500;white-space:nowrap;cursor:pointer}
+  .btn.sm{height:26px;font-size:11px;padding:0 10px;flex:0 0 auto}
+  .btn.danger{background:#3a2a2a;color:var(--danger)}
+  .sw{display:flex;align-items:center;justify-content:space-between;padding:0 10px;cursor:pointer;
+      height:var(--row);border-radius:6px;background:#2c2c2c;font-size:12px;color:var(--dim);transition:background .12s,color .12s}
+  .sw .nm{display:flex;align-items:center;gap:5px}
+  .sw .dot{width:8px;height:8px;border-radius:50%;border:1.5px solid var(--dim);flex:0 0 auto}
+  .sw.on{background:var(--on);color:#fff}
+  .sw.on .dot{background:#fff;border-color:#fff}
+  .sw.net.on{background:var(--net)}
+  .badge{display:inline-block;font-size:9px;line-height:14px;padding:0 5px;border-radius:3px;vertical-align:1px}
+  .badge.dev{background:rgba(46,163,163,.14);color:var(--accent);border:1px solid rgba(46,163,163,.36)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:var(--gap)}
+  .track{position:relative;height:34px;background:#111;border-radius:6px}
+  .track .fill{position:absolute;left:0;top:0;bottom:0;width:38%;background:rgba(46,163,163,.25);border-radius:6px 0 0 6px}
+  .track .knob{position:absolute;top:-2px;left:38%;width:3px;height:38px;background:#eee;border-radius:2px}
+  .track .ab{position:absolute;top:7px;height:20px;border-top:2px solid var(--accent);border-bottom:2px solid var(--accent)}
+  .track .ab.a{left:26%;border-left:2px solid var(--accent)}
+  .track .ab.b{left:70%;border-right:2px solid var(--accent)}
+  .mono{font-variant-numeric:tabular-nums;font-family:ui-monospace,Menlo,monospace}
+  .slider{flex:1;height:var(--row);display:flex;align-items:center}
+  .slider .rail{flex:1;height:4px;border-radius:2px;background:#4a4a4a;position:relative}
+  .slider .rail .fill{position:absolute;left:0;top:0;bottom:0;width:37%;background:#ddd;border-radius:2px}
+  .slider .rail .k{position:absolute;top:-6px;left:37%;width:16px;height:16px;border-radius:50%;background:#fff}
+  .speed{width:56px;font-size:14px;font-weight:600}
+  .field{flex:1;height:26px;border-radius:6px;background:#2c2c2c;color:#e8e8e8;font-size:11px;
+         display:flex;align-items:center;padding:0 8px;font-family:ui-monospace,Menlo,monospace;overflow:hidden;white-space:nowrap}
+  .cell{display:flex;flex-direction:column;gap:3px}
+  .cell .k{font-size:9px;color:var(--dim)}
+  .cell .v{height:26px;border-radius:6px;background:#2c2c2c;display:flex;align-items:center;justify-content:center;
+           font-family:ui-monospace,Menlo,monospace;font-size:12px}
+  .diag{font-size:10px;color:#8a8a8a;line-height:1.6}
+  .tag{display:inline-block;padding:0 4px;border-radius:3px;background:#2c2c2c;color:#bbb;margin-right:4px}
+  .ok{color:var(--ok)}
+  .note{font-size:10px;line-height:1.6;color:#8f8f8f;margin-top:6px}
+  .note b{color:#c9c9c9;font-weight:600}
+  /* ── 折叠（地址 / 高级） ── */
+  details.fold summary{list-style:none;height:26px;display:flex;align-items:center;gap:6px;
+      font-size:11px;color:var(--dim);cursor:pointer;padding:0 8px;border-radius:6px;background:#232323}
+  details.fold summary::-webkit-details-marker{display:none}
+  details.fold summary .car{transition:transform .12s}
+  details.fold[open] summary .car{transform:rotate(90deg)}
+  details.fold .in{margin-top:6px;display:flex;flex-direction:column;gap:var(--gap)}
+  /* ── 开发构建专属区 ── */
+  .dbg{margin-top:10px;border-top:1px dashed rgba(255,255,255,.10);padding-top:8px}
+  body.release .dbg{display:none}
+  /* ── 侧栏（图例 / 悬浮球） ── */
+  .side{width:288px;display:flex;flex-direction:column;gap:12px}
+  .side .card{margin-top:0}
+  .legend{display:flex;align-items:center;gap:8px;margin-top:8px}
+  .legend .lab{font-size:10px;color:var(--dim2);width:74px;flex:0 0 auto}
+  .ballonly{display:flex;justify-content:center;padding:6px 0}
+  .ball{width:56px;height:56px;border-radius:50%;overflow:hidden;position:relative;flex:0 0 auto;
+        box-shadow:0 4px 14px rgba(0,0,0,.5)}
+  .ball img{width:100%;height:100%;object-fit:cover;display:block}
+  .ball .stamp{position:absolute;left:0;right:0;bottom:0;height:13px;line-height:13px;text-align:center;
+        background:rgba(0,0,0,.5);color:#fff;font:700 8px ui-monospace,Menlo,monospace}
+  .side .note{margin-top:8px}
+  .copy{font-size:10px;color:#5f5f5f;text-align:center;margin-top:10px;letter-spacing:.04em}
+</style>
+</head>
+<body>
+
+<div class="pagehead">
+  <span class="cap">构建轴对照（预览专用，非产品 UI）：</span>
+  <div class="seg" id="buildSeg">
+    <div class="opt" data-mode="release">发布构建</div>
+    <div class="opt sel" data-mode="debug">开发构建</div>
+  </div>
+</div>
+
+<div class="stage">
+
+  <!-- ═══════════════ 面板 ═══════════════ -->
+  <div class="phone">
+    <div class="panel">
+      <div class="titlebar"><div class="t">xrcdemo<span class="ver">v10.0</span></div><div class="info">ⓘ</div><div class="x">✕</div></div>
+
+      <div class="body">
+
+        <!-- ① 播放（含回跳重播） -->
+        <div class="sec"><span class="lbl">播放</span><span class="hint">拖动时间轴 = 跳转</span></div>
+        <div class="card">
+          <div class="track"><div class="fill"></div><div class="ab a"></div><div class="ab b"></div><div class="knob"></div></div>
+          <div class="row" style="margin-top:8px">
+            <span class="mono" style="font-size:13px">01:23 / 03:40</span>
+            <span style="flex:1"></span><span class="btn sm">−5s</span><span class="btn sm">+5s</span>
+          </div>
+          <div class="row">
+            <span class="speed mono">0.75x</span>
+            <div class="slider"><div class="rail"><div class="fill"></div><div class="k"></div></div></div>
+          </div>
+          <div class="row" style="margin-top:8px">
+            <div class="sw on" style="flex:1"><span class="nm">音乐变速</span><span class="dot"></span></div>
+          </div>
+          <div class="cardsep"></div>
+          <div class="row">
+            <div class="sw on" style="flex:1"><span class="nm">回跳重播</span><span class="dot"></span></div>
+          </div>
+          <div class="note"><b>音乐变速</b>=让 BGM 跟着速度走并<b>保持音高</b>；关掉则只改谱面时钟。<br>
+            <b>回跳重播</b>=回跳到已游玩并判定过的谱面段落时，支持重新游玩该段，同时清空分数记录。</div>
+        </div>
+
+        <!-- ② 循环 -->
+        <div class="sec"><span class="lbl">循环</span><span class="hint">到 B 回 A</span></div>
+        <div class="card">
+          <div class="row">
+            <div class="btn" style="flex:1">设起点 A <span class="mono" style="margin-left:6px;color:var(--accent-soft)">01:02</span></div>
+            <div class="btn" style="flex:1">设终点 B <span class="mono" style="margin-left:6px;color:var(--accent-soft)">01:47</span></div>
+          </div>
+          <div class="row">
+            <div class="sw on" style="flex:1"><span class="nm">循环</span><span class="dot"></span></div>
+            <div class="btn danger" style="flex:0 0 92px">重置区间</div>
+          </div>
+        </div>
+        <div class="note"><b>设起点/终点</b>=把当前位置记为 A / B（B 需 &gt; A+1s）；<b>循环</b>开=到 B 自动回 A。</div>
+
+        <!-- ③ 判定窗口 -->
+        <div class="sec"><span class="lbl">判定窗口</span><span class="btn sm act">应用</span></div>
+        <div class="card">
+          <div class="grid2">
+            <div class="cell"><span class="k">Max</span><div class="v">25</div></div>
+            <div class="cell"><span class="k">Pure</span><div class="v">50</div></div>
+            <div class="cell"><span class="k">Far</span><div class="v">100</div></div>
+            <div class="cell"><span class="k">Lost</span><div class="v">120</div></div>
+          </div>
+          <div class="row" style="margin-top:8px">
+            <div class="sw" style="flex:1"><span class="nm">自动演奏</span><span class="dot"></span></div>
+          </div>
+        </div>
+        <div class="note">四档 ±ms 阈值（需递增）；<b>自动演奏</b>=所有判定强制 Pure（含漏扫路径），演示/练习用。</div>
+
+        <!-- ④ 解锁 -->
+        <div class="sec"><span class="lbl">解锁</span><span class="hint">离线/未授予时才有意义</span></div>
+        <div class="card"><div class="grid2">
+          <div class="sw on"><span class="nm">拥有链</span><span class="dot"></span></div>
+          <div class="sw"><span class="nm">FV 锁</span><span class="dot"></span></div>
+          <div class="sw"><span class="nm">DO 锁</span><span class="dot"></span></div>
+          <div class="sw on"><span class="nm">链门（总闸）</span><span class="dot"></span></div>
+          <div class="sw on" style="grid-column:1/-1"><span class="nm">cb 自由化</span><span class="dot"></span></div>
+        </div></div>
+        <div class="note"><b>拥有链</b>=三层判定恒真（未授予时的兜底）｜<b>FV / DO 锁</b>=特殊曲包五难度全解｜<b>链门</b>=7.0 链系统总闸｜<b>cb 自由化</b>=内容包校验恒通过且不再清树。</div>
+
+        <!-- ⑤ 网络 -->
+        <div class="sec"><span class="lbl">网络</span><span class="hint">只改 API 域名，不动 TLS</span></div>
+        <div class="card">
+          <div class="row">
+            <div class="sw net on" style="flex:0 0 96px"><span class="nm">私服</span><span class="dot"></span></div>
+          </div>
+          <details class="fold">
+            <summary><span class="car">▸</span>服务端地址</summary>
+            <div class="in"><div class="field">http://192.168.1.10:8080</div></div>
+          </details>
+          <div class="diag" style="margin-top:6px">改写 <span class="mono">21</span>/<span class="mono">64</span> 请求 ｜ 下载任务 <span class="mono">2</span> 建 / <span class="mono">2</span> 完</div>
+        </div>
+        <div class="note">只改 API 请求的域名（路径/参数原样、不动 TLS）；关掉走官方域。</div>
+
+        <!-- ⑥ 存储 -->
+        <div class="sec"><span class="lbl">存储</span><span class="hint">免越狱自用通道</span></div>
+        <div class="card">
+          <div class="row">
+            <div class="sw on" style="flex:0 0 120px"><span class="nm">cb 外置</span><span class="dot"></span></div>
+          </div>
+          <div class="diag" style="margin-top:6px">cb 已外置 → Documents/cb</div>
+        </div>
+        <div class="note"><b>cb 外置</b>=把内容根搬到 Documents/cb（同分区瞬间完成）。cb/active 即资源覆盖层。</div>
+
+        <!-- ⑦ 诊断 -->
+        <div class="sec"><span class="lbl">诊断</span><span class="hint">日志 xrcdemo.log</span></div>
+        <div class="card">
+          <div class="diag">
+            <span class="tag">stub ✓</span><span class="tag">v2 ✓</span><span class="tag">judge ✓</span><span class="tag">gp ✓</span><span class="tag">mtp ✓</span>
+          </div>
+          <div class="diag">补丁：<span class="ok">cb 自由化 启用</span>（校验恒通过 / 清树禁用）</div>
+
+          <!-- 开发构建专属 -->
+          <div class="dbg">
+            <div class="row" style="margin-bottom:8px">
+              <span class="badge dev">开发</span><span class="diag">以下工具随开发构建提供</span>
+            </div>
+            <div class="row">
+              <span class="diag" style="flex:0 0 48px">日志档位</span>
+              <div class="seg" id="logSeg" style="flex:1">
+                <div class="opt sel">默认</div><div class="opt">详细</div><div class="opt">网络</div>
+              </div>
+            </div>
+            <div class="row" style="margin-top:8px">
+              <div class="btn sm" style="flex:1">转储内存</div>
+              <div class="btn sm" style="flex:1">清理转储</div>
+            </div>
+            <div class="row">
+              <div class="btn sm" style="flex:1">OM 探针</div>
+              <div class="btn sm" style="flex:1">强制 applog</div>
+            </div>
+            <div class="row" style="margin-top:8px">
+              <div class="sw" style="flex:1"><span class="nm">观测桩轻量</span><span class="dot"></span></div>
+            </div>
+            <div class="diag" style="margin-top:6px">日志档位写入配置、重启保持；转储 → Documents/xrcdemo-net/mem/；强制 applog 需二次确认。</div>
+          </div>
+        </div>
+
+        <div class="note" style="margin-top:10px">长按任一项 = 查看说明；单击 = 切换。</div>
+        <div class="copy">© 雾月星辰&MLXC/github@XingChenRS</div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ 侧栏 ═══════════════ -->
+  <div class="side">
+
+    <div class="ballonly">
+        <div class="ball"><img src="data:image/jpeg;base64,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" alt=""><span class="stamp">a3f9c21</span></div>
+    </div>
+
+    <div class="card">
+      <div class="sec" style="margin-top:0"><span class="lbl">图例</span><span class="hint">语义样式</span></div>
+      <div class="legend"><span class="lab">开关 · 开</span><div class="sw on" style="flex:1;height:26px"><span class="nm" style="font-size:11px">名称</span><span class="dot"></span></div></div>
+      <div class="legend"><span class="lab">开关 · 关</span><div class="sw" style="flex:1;height:26px"><span class="nm" style="font-size:11px">名称</span><span class="dot"></span></div></div>
+      <div class="legend"><span class="lab">动作</span><div class="btn sm" style="flex:1">动作按钮</div></div>
+      <div class="legend"><span class="lab">破坏性</span><div class="btn sm danger" style="flex:1">重置区间</div></div>
+      <div class="legend"><span class="lab">构建标记</span><span class="badge dev">开发</span></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  // 开关演示：点击翻转视觉状态
+  document.querySelectorAll('.sw').forEach(function(s){
+    s.addEventListener('click', function(){ s.classList.toggle('on'); });
+  });
+  // 构建轴对照：发布构建不渲染开发专属区
+  var body = document.body;
+  document.querySelectorAll('#buildSeg .opt').forEach(function(o){
+    o.addEventListener('click', function(){
+      document.querySelectorAll('#buildSeg .opt').forEach(function(x){ x.classList.remove('sel'); });
+      o.classList.add('sel');
+      body.classList.toggle('release', o.dataset.mode === 'release');
+    });
+  });
+  // 日志档位分段演示
+  document.querySelectorAll('#logSeg .opt').forEach(function(o){
+    o.addEventListener('click', function(){
+      document.querySelectorAll('#logSeg .opt').forEach(function(x){ x.classList.remove('sel'); });
+      o.classList.add('sel');
+    });
+  });
+</script>
+</body>
+</html>

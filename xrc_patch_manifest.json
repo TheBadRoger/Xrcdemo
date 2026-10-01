@@ -1,0 +1,133 @@
+{
+  "generated": "2026-10-01T04:24:37",
+  "main": "ios/Payload/Arc-mobile.app/Arc-mobile",
+  "applied": {
+    "dylib_injection": true,
+    "ats_exemption": true,
+    "judge_stub_v2": false,
+    "brk_hooks": true,
+    "gate_patches": false
+  },
+  "features_desc": "profile=release",
+  "features": [
+    {
+      "name": "unlock_own",
+      "status": "redundant",
+      "note": "拥有链三层——实测无效：归属由 cb 三清单 + 服务器授予决定，仅兜底",
+      "sites": [
+        "unlock_l1",
+        "unlock_l2",
+        "unlock_l3"
+      ],
+      "enabled": false
+    },
+    {
+      "name": "unlock_lock",
+      "status": "stable",
+      "note": "曲目锁态覆盖（FV/DO 五难度全解）+ 终章链门放行（整表解锁总闸）",
+      "sites": [
+        "lock_fv",
+        "lock_do",
+        "fv_gate"
+      ],
+      "enabled": true
+    },
+    {
+      "name": "chain_guard",
+      "status": "required",
+      "note": "7.0 链查表守崩桩（恒生效；防改名/挪包 NULL 崩）",
+      "sites": [
+        "chain_prog"
+      ],
+      "enabled": true
+    },
+    {
+      "name": "cb_free",
+      "status": "stable",
+      "note": "cb 自由化：校验结论恒通过（非跳过）+ 清树禁用（离线自改内容的前提）",
+      "sites": [
+        "cb_ready",
+        "cb_filehash",
+        "cb_listhash",
+        "cb_wipe",
+        "cb_dispatch"
+      ],
+      "enabled": true
+    },
+    {
+      "name": "autoplay",
+      "status": "stable",
+      "note": "自动演奏（面板开关，默认关）+ 判定计数诊断",
+      "sites": [
+        "ap_ln_state",
+        "ap_ln_tick",
+        "ap_note_win",
+        "ap_arctap_win",
+        "ap_swallow_judge",
+        "ap_swallow_batch",
+        "ap_swallow_touch",
+        "ap_arc_visual",
+        "ap_tickcnt1",
+        "ap_tickcnt2"
+      ],
+      "enabled": true
+    },
+    {
+      "name": "rpf_arcprobe",
+      "status": "debug",
+      "note": "弧/绘制观测桩（**已退役**：只观测；查碎弧的使命已完成，留着是高频负载）",
+      "sites": [
+        "rpf_draw",
+        "rpf_arctick",
+        "rpf_arcpass"
+      ],
+      "enabled": false
+    },
+    {
+      "name": "arc_nohide",
+      "status": "debug",
+      "note": "回跳期把弧分段的「藏」反成「显」（**已退役**：被渲染重建取代；留着会让弧越过判定线）",
+      "sites": [
+        "arc_hide_a",
+        "arc_hide_b"
+      ],
+      "enabled": false
+    },
+    {
+      "name": "applog_capture",
+      "status": "debug",
+      "note": "applog 明文/密文采集（调试；默认不落盘，仅 brk 分支构建含）",
+      "sites": [
+        "applog_send",
+        "applog_blob"
+      ],
+      "enabled": false
+    }
+  ],
+  "brk_sites": [
+    "cb_ready",
+    "cb_filehash",
+    "cb_listhash",
+    "cb_wipe",
+    "cb_dispatch",
+    "ap_ln_state",
+    "ap_ln_tick",
+    "ap_note_win",
+    "ap_arctap_win",
+    "ap_swallow_judge",
+    "ap_swallow_batch",
+    "ap_swallow_touch",
+    "ap_arc_visual",
+    "ap_tickcnt1",
+    "ap_tickcnt2",
+    "lock_fv",
+    "lock_do",
+    "fv_gate",
+    "chain_prog"
+  ],
+  "gate_patches": [],
+  "dylibs": [
+    "libxrcdemo.dylib",
+    "libellekit.dylib"
+  ]
+}
