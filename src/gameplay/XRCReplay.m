@@ -238,7 +238,7 @@ extern void xrc_freeze_end(void);         // XRCGameplay 导出
 // ---- 开关与状态（默认 = 已验证配置） ----
 static int s_arm_on;                              /* 回跳重播总门（xrc_replay_set_enabled 控制） */
 static int s_no_gate, s_no_pred, s_no_score;      /* 子项断流开关（0 = 执行） */
-static int s_rebuild_on;                          /* 渲染重建（默认关） */
+static int s_rebuild_on = 1;                      /* 渲染重建：弧/长条回跳显示的正解（默认开） */
 static int s_do_write = 1;                        /* 落笔（默认开；置 0 = 只读诊断） */
 
 static int s_rst_seq;                             /* 重置序号（日志用） */
