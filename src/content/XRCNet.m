@@ -437,6 +437,10 @@ static void s_dl_redirect(id self_, SEL _cmd, NSURLSession *sess, NSURLSessionTa
 }
 
 static void s_install_download_stack(void) {
+#if XRC_DEBUG_BUILD
+    // System-wide factory/resume probes are diagnostics only. Replacing these
+    // methods during scene creation blocked cache flushing on iOS 26 (watchdog).
+    // Release builds instrument the game's downloader delegate below instead.
     Class sc = objc_getClass("NSURLSession");
     if (sc) {
         struct { const char *sel; IMP imp; IMP *slot; } t[] = {
@@ -467,6 +471,7 @@ static void s_install_download_stack(void) {
         }
         xrc_logi(XRCLC_NET, @"[net] download stack: task-resume hook=%d", s_orig_resume != NULL);
     }
+#endif
     Class dl = objc_getClass("DownloaderAppleImpl");
     if (dl) {
         struct { const char *sel; const char *enc; IMP imp; IMP *slot; } t2[] = {
@@ -520,6 +525,7 @@ static void s_swizzle_result_logging(void) {
 }
 
 // 另两条栈的探针（NSURLSession 的两种 task + 异步连接）
+#if XRC_DEBUG_BUILD
 static void s_install_other_stacks(void) {
     Class scls = objc_getClass("NSURLSession");
     if (scls) {
@@ -536,6 +542,7 @@ static void s_install_other_stacks(void) {
         xrc_logi(XRCLC_NET, @"[net] async connection probe=%d", s_orig_async != NULL);
     }
 }
+#endif
 
 // ---------------- 302 / 重定向支持 ----------------
 // 事实：`HttpAsynConnection` 未实现 `connection:willSendRequest:redirectResponse:`
@@ -596,7 +603,11 @@ void xrc_net_install(void) {
         xrc_logi(XRCLC_NET, @"[net] installed (match=%@)", [s_match componentsJoinedByString:@","]);
         s_swizzle_result_logging();
         s_install_redirect_hook();
+#if XRC_DEBUG_BUILD
         s_install_other_stacks();
+#else
+        xrc_logi(XRCLC_NET, @"[net] scoped-hooks v1: global NSURLSession probes skipped (release)");
+#endif
         s_install_download_stack();
     });
 }

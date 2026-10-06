@@ -46,3 +46,11 @@
 ## iPad 安装限制修正
 
 源包的 `UISupportedDevices` 仅列出部分 iPhone 和 iPod，导致 iPad 安装时出现 `DeviceNotSupportedByThinning`。主 App 的 `UIDeviceFamily` 已为 `[1, 2]`，因此部署时移除型号白名单，保留原有 iPad 支持声明，并重新打包。新包必须重新签名。这个修改仅消除安装阶段的型号限制，不能证明原包包含全部 iPad 资源或已通过真机验证。
+
+## iOS 26 启动看门狗修正
+
+2026-10-06 的设备报告记录 `EXC_CRASH / SIGKILL`，终止码 `0x8BADF00D`，原因为创建场景超过约 19 秒。主线程停在 `s_install_other_stacks -> method_setImplementation -> flushCaches`；日志停在游戏网络回调安装之后，未输出 NSURLSession 探针安装完成。
+
+发布版现在跳过全局 NSURLSession 工厂、Task resume 和额外 NSURLConnection 异步诊断探针，保留游戏使用的连接重定向及 DownloaderAppleImpl 回调。发布版日志会显示 `scoped-hooks v1`，用于确认实际安装了新构建。开发构建仍含这些诊断探针，不应作为本次修复的部署产物。
+
+这个报告支持启动时网络探针安装阻塞的诊断，不支持将原因归为 cbBypass 或游戏地址不匹配。修复仍需设备复测。
