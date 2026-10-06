@@ -30,6 +30,7 @@
 #include "XRCAudio.h"
 #include "XRCReplay.h"
 #include "XRCFlow.h"
+#include "XRCPracticeMath.h"
 #import "XRCTimelineView.h"
 #import "XRCSwitchRow.h"
 
@@ -421,7 +422,7 @@ static NSString *const kNoteDev =
     }   // 循环段（能力不足则不建）
 
     // ============ ③ 判定窗口（含自动演奏） ============
-    if (xrc_cap_stub()) {   // 能力：judge 桩；缺则整段隐藏（原因见"诊断"行）
+    {   // Keep controls visible; refresh disables them and explains missing capabilities.
     [self sectionLabel:@"判定窗口" hint:nil x:x0 y:y w:W - 76];
     self.judgeApplyBtn = [self makeActionButton:@"应用"];
     self.judgeApplyBtn.frame = CGRectMake(x0 + W - 64, y - 5, 64, 26);
@@ -478,7 +479,7 @@ static NSString *const kNoteDev =
     y += 12;
     y = [self note:kNoteJudge at:x0 y:y w:W] + secGap;
 
-    }   // 判定段（无桩则不建）
+    }   // 判定段（无桩时显示禁用原因）
 
     // ============ ④ 解锁 ============
     // 解锁：按构建期功能集显示；一项都没有则整段隐藏
@@ -886,8 +887,13 @@ static NSString *const kNoteDev =
 - (void)commitFlow {
     NSScanner *scanner = [NSScanner scannerWithString:self.flowField.text ?: @""];
     double value = 0;
-    if (![scanner scanDouble:&value] || !scanner.isAtEnd || !xrc_flow_set(value)) {
+    int32_t units;
+    if (![scanner scanDouble:&value] || !scanner.isAtEnd || !xrc_practice_flow_units(value, &units)) {
         [WHToast showMessage:@"请输入有效流速，最小 0.1；按 0.1 步长保存" duration:1.8 finishHandler:^{}];
+        return;
+    }
+    if (!xrc_flow_set(value)) {
+        [WHToast showMessage:@"原生流速尚未应用，请查看 xrcdemo.log 的 [flow] 记录" duration:2.2 finishHandler:^{}];
         return;
     }
     xrc_config_t cfg; xrc_config_load(&cfg);

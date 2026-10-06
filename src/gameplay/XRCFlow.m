@@ -3,6 +3,7 @@
 #include "XRCProfile.h"
 #include "XRCHook.h"
 #include "XRCConfig.h"
+#import "XRCLog.h"
 #include <stdatomic.h>
 #include <string.h>
 
@@ -24,7 +25,12 @@ bool xrc_flow_set(double speed) {
     atomic_store(&s_requested, units);
     s_applied_settings = 0;
     xrc_flow_tick();
-    return true;
+    bool applied = s_applied_settings != 0 && s_applied_units == units
+        && *(const int32_t *)(s_applied_settings + 12) == units;
+    if (!applied)
+        xrc_logw(XRCLC_BOOT, @"[flow] request %.1f pending or rejected: hooks=%d settings=%llx",
+                 (double)units / 10.0, xrc_feature_complete("note_flow"), s_settings());
+    return applied;
 }
 
 double xrc_flow_get(void) {
@@ -41,6 +47,8 @@ void xrc_flow_tick(void) {
     if (settings == s_applied_settings && units == s_applied_units) {
         int32_t current = *(const int32_t *)(settings + 12);
         if (current > 0 && current != units) {
+            xrc_logi(XRCLC_BOOT, @"[flow] native settings changed %.1f -> %.1f",
+                     (double)units / 10.0, (double)current / 10.0);
             atomic_store(&s_requested, current);
             s_applied_units = current;
             xrc_config_t config;
@@ -52,8 +60,16 @@ void xrc_flow_tick(void) {
     }
     uint64_t setter = xrc_image_base() + XRC_OFF_FLOW_SETTER;
     const unsigned char expected[4] = {0xf4, 0x4f, 0xbe, 0xa9};
-    if (memcmp((const void *)setter, expected, sizeof(expected))) return;
+    if (memcmp((const void *)setter, expected, sizeof(expected))) {
+        xrc_logw(XRCLC_BOOT, @"[flow] setter fingerprint mismatch at %llx", setter);
+        atomic_store(&s_requested, 0);
+        return;
+    }
     ((void (*)(uint64_t, int32_t))setter)(settings, units);
+    int32_t readback = *(const int32_t *)(settings + 12);
+    xrc_logi(XRCLC_BOOT, @"[flow] native setter wrote %.1f; readback %.1f",
+             (double)units / 10.0, (double)readback / 10.0);
+    if (readback != units) { atomic_store(&s_requested, 0); return; }
     s_applied_settings = settings;
     s_applied_units = units;
 }

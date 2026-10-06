@@ -16,7 +16,7 @@
 
 **导航** · [功能](#功能) · [构建](#构建) · [部署](#部署) · [跨版本适配](#跨版本适配) · [故障排查](#故障排查) · [许可](#许可)
 
-部署前请阅读 [NOTICE.md](NOTICE.md)。本地游戏样本、改包成果及逆向过程资料已迁移到 `D:\Workspace\ArcaeaDecryptor\work\xrcdemo-20261006-practice`；本项目不保留源 App / IPA，下一次部署需重新准备 `ios/Payload/`。
+部署前请阅读 [NOTICE.md](NOTICE.md)。本地游戏样本和部署成果保留在 `ios/Payload/` 与 `ios/deployment/`，便于重新部署；逆向分析过程与 IDA 工具归档在 `D:\Workspace\ArcaeaDecryptor\work\xrcdemo-20261006-practice`。这些本地文件仍由 Git 忽略，不随源码发布。
 
 ## 功能
 
