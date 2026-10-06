@@ -760,6 +760,47 @@ def insert_load_commands_inplace(data: bytearray, base: int) -> list[str]:
     return logs
 
 
+FLOW_RUNTIME_PATCHES = {
+    "7.0.255": [
+        (0x95EF80, "4631881a", "e603082a"),
+        (0x95F418, "4631881a", "e603082a"),
+        (0xC17180, "4631881a", "e603082a"),
+        (0xC2B844, "4631881a", "e603082a"),
+        (0xC58624, "00318a1a", "e0030a2a"),
+        (0xC8280C, "5631881a", "f603082a"),
+    ],
+    "7.0.256": [
+        (0x961084, "4631881a", "e603082a"),
+        (0x96151C, "4631881a", "e603082a"),
+        (0xC1A1B4, "4631881a", "e603082a"),
+        (0xC2E878, "4631881a", "e603082a"),
+        (0xC5BC84, "00318a1a", "e0030a2a"),
+        (0xC85E6C, "5631881a", "f603082a"),
+    ],
+}
+
+
+def patch_flow_runtime(data: bytearray, enabled: bool, patches=None) -> list[str]:
+    """Preserve native speed units at six consumer clamps, not just the popup.
+
+    IDA traced settings+12 into four gameplay constructors, a settings getter,
+    and a speed display. Replace only the final clamp selection with MOV;
+    unrelated world-mode rules and the <=1.9 advisory are left intact.
+    Preflight the entire plan before modifying any bytes.
+    """
+    plan = FLOW_RUNTIME_PATCHES[ACTIVE_GAME_VERSION] if patches is None else patches
+    base = fat_arm64_slice_offset(bytes(data))
+    for offset, original, replacement in plan:
+        actual = bytes(data[base + offset:base + offset + 4]).hex()
+        if actual not in (original, replacement):
+            raise RuntimeError(f"flow runtime: {offset:#x} bytes {actual} != {original}/{replacement}")
+    logs = []
+    for offset, original, replacement in plan:
+        data[base + offset:base + offset + 4] = bytes.fromhex(replacement if enabled else original)
+        logs.append(f"flow runtime: {offset:#x} {'unclamped' if enabled else 'native'}")
+    return logs
+
+
 def find_dylibs() -> list[str]:
     candidates = [ROOT,
                   os.path.join(ROOT, "ci-artifacts", f"libxrcdemo-sideload-{ACTIVE_GAME_VERSION}"),
@@ -820,6 +861,19 @@ def check_binary(path: str) -> int:
             state = f"UNKNOWN({cur.hex()})"
         print(f"gate[{name}]: {va:#x} {state}")
     print(f"gates      : {gate_ok}/{len(GATE_PATCHES)} patched")
+    flow_plan = FLOW_RUNTIME_PATCHES[ACTIVE_GAME_VERSION]
+    flow_hits = 0
+    for offset, original, replacement in flow_plan:
+        actual = raw[base + offset:base + offset + 4].hex()
+        if actual == replacement:
+            flow_hits += 1
+        elif actual != original:
+            print(f"=> INVALID: unknown flow consumer instruction at {offset:#x}: {actual}")
+            ok = False
+    print(f"flow consumers: {flow_hits}/{len(flow_plan)} patched")
+    if flow_hits not in (0, len(flow_plan)):
+        print("=> INVALID: incomplete native flow consumer patches")
+        ok = False
     if has_stub and not has_dylib:
         print("=> INVALID: stub without dylib (features would be dead)")
         ok = False
@@ -899,6 +953,11 @@ def main():
             print("[!] new practice hooks require a rebuilt dylib with 'practice-timing v1'; refusing old artifacts")
             sys.exit(3)
 
+    if do_brk and "note_flow" in g_selected_features:
+        if b"practice-flow v2" not in open(dylibs[0], "rb").read():
+            print("[!] native flow consumer patches require a rebuilt dylib with 'practice-flow v2'")
+            sys.exit(3)
+
     # 配对校验（两条）：
     #   ① autoplay 桩（ap_*）需要 dylib 侧处理器（"autoplay-eve v1"）；
     #   ② 链进度桩（chain_prog）需要 "chain-guard v1"。
@@ -974,6 +1033,13 @@ def main():
             sys.exit(1)
         print("[i] brk hook patched — re-sign the app before installing")
 
+    try:
+        for line in patch_flow_runtime(data, do_brk and "note_flow" in g_selected_features):
+            print(f"[+] {line}")
+    except RuntimeError as e:
+        print(f"[!] {e}")
+        sys.exit(1)
+
     # 门禁静态补丁：默认不应用，须显式 --gate 打开（表为空时为无操作）。
     do_gates = "--gate" in sys.argv
     if do_gates:
@@ -1004,6 +1070,11 @@ def main():
     import datetime as _dt
     manifest = {
         "game_version": ACTIVE_GAME_VERSION,
+        "flow_runtime_patches": [
+            {"offset": hex(offset), "original": original, "replacement": replacement,
+             "inplace": raw[base + offset:base + offset + 4].hex() == replacement}
+            for offset, original, replacement in FLOW_RUNTIME_PATCHES[ACTIVE_GAME_VERSION]
+        ],
         "generated": _dt.datetime.now().isoformat(timespec="seconds"),
         "main": os.path.relpath(MAIN, ROOT).replace("\\", "/"),
         "applied": {
@@ -1012,6 +1083,7 @@ def main():
             "judge_stub_v2": bool(do_stub),
             "brk_hooks": bool(do_brk),
             "gate_patches": bool(do_gates),
+            "note_flow_runtime": bool(do_brk and "note_flow" in g_selected_features),
         },
         "features_desc": g_features_desc if do_brk else None,
         "features": [{"name": n, "status": st, "note": note,

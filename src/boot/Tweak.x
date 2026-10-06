@@ -277,6 +277,7 @@ static void doBootstrap(void) {
         [[NSRunLoop mainRunLoop] addTimer:xrc_tick forMode:NSRunLoopCommonModes];
         xrc_replay_start();   // 回跳重播引擎：常驻检出线程（落笔在主队列；总门由面板控制）
         xrc_logi(XRCLC_BOOT, @"practice-timing v1: real-time judgment lock / unrestricted note flow");
+        xrc_logi(XRCLC_BOOT, @"practice-flow v2: native consumer clamps removed; setter readback enabled");
         xrc_logi(XRCLC_BOOT, @"存储：%@ ｜ cb 自由化 %s",
                  xrc_store_cb_status(), g_cfg.cb_bypass ? "on" : "off");
         xrc_logd(XRCLC_BOOT, @"%@（开关 %s）", xrc_audio_speed_status(),
