@@ -125,6 +125,8 @@ xrcdemo/
 | 动态库 | 两个文件齐全，与注入器实现配套；也可放在 `ci-artifacts/libxrcdemo-sideload/` |
 | 备份 | 保存完整源 App；注入器原位修改文件，不自动备份 |
 
+⚠️ **全新安装首次启动**：当前版本默认开启 `cbBypass`。在尚未初始化 cb 内容的设备上，已观察到启动闪退；关闭此项后可正常启动。建议首次启动使用 [首次启动配置](examples/first-launch/xrcdemo.plist)，具体操作见下方[已验证的启动问题](#已验证的启动问题)。
+
 ### ② 注入发布版补丁
 
 ```sh
@@ -275,6 +277,38 @@ zsign -k certificate.p12 -p 'YOUR_PASSWORD' \
 | `Failed to re-fetch bundle during preflight` | 这是外层错误；读取设备 `installd` 日志中的底层错误再判断 |
 | 安装成功但启动崩溃 | 签名、动态库依赖、架构、功能处理器及游戏版本 |
 | 面板出现但功能不可用 | 判定桩、选定功能站点及 `[probe] summary` 状态 |
+
+### 已验证的启动问题
+
+**首次安装没有 cb 内容，开启 `cbBypass` 时可能启动闪退。** 该配置不仅放行内容校验，还会让 `cb_ready` 无条件返回“已就绪”；就绪状态不能证明内容已经初始化。
+
+| 项目 | 实测记录 |
+| :--- | :--- |
+| 验证日期 | 2026-10-06 |
+| 环境 | iPad（`iPad12,1`）、iPadOS 26.6.1、Arcaea 7.0.255 |
+| 套件 | 发布构建 `e4af9aa-10011916`，主程序已修正 Mach-O 加载命令，未包含通知扩展 |
+| 启动日志 | SIGTRAP 处理器已安装；首次启动无既有 cb，仅创建 `Documents/cb` 占位目录 |
+| 崩溃报告 | `document.h:1226`、`Size`、`IsArray()` 断言失败，经 `__assert_rtn → abort` 退出；报告中的断点地址对应 `cb_ready` |
+| 最小验证 | 无需重新签名或安装，将 `cbBypass` 设为 `false` 后重新启动 |
+| 用户确认结果 | **可正常启动**；其他练习功能及不同设备、版本仍需分别验证 |
+
+**处理步骤：**
+
+1. 完全退出 App，备份 `Documents/xrcdemo.plist`。
+2. 若已有配置，仅将 `cbBypass` 改为 `false`，保留其他键：
+
+   ```xml
+   <key>cbBypass</key>
+   <false/>
+   ```
+
+3. 若没有自定义配置，可使用 [examples/first-launch/xrcdemo.plist](examples/first-launch/xrcdemo.plist)。此文件仅指定 `cbBypass=false`，其他设置采用套件默认值。
+4. 将文件以 **`xrcdemo.plist`** 的名称放回 App 的 Documents 根目录。在 iPad 上对应“文件 → 我的 iPad → App 显示名称”，不要放入 `cb` 子目录。
+5. 重新启动并检查 `xrcdemo.log`。如果仍闪退，获取新的 `.ips`，确认是否仍为同一断言。
+
+此操作关闭 cb 校验覆盖，但保留已注入的其他功能。它不会移除既有的内容外置软链，也不要求清空 cb 或卸载 App。启动验证通过后先保持 `cbBypass` 关闭；重新开启前需要确认内容已完整初始化。
+
+> 这是已验证的配置规避方式，源码的默认值和强制就绪逻辑尚未修改；未据此宣称所有首次启动问题都已修复。
 
 注入器加载命令回归测试：
 

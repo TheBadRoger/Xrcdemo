@@ -32,6 +32,8 @@ Password.txt
 
 # Device logs and local diagnostics
 *.log
+*.ips
+*.crash
 errlog.txt
 .zsign_cache/
 .zsign_debug/
