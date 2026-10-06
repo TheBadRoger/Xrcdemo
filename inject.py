@@ -223,6 +223,52 @@ GP_UPDATE_OFF   = 0xCA7160    # 槽 103 每帧函数
 MTP_VTABLE_OFF  = 0x14B75B0   # MTP vtable
 MTP_GETPOS_OFF  = 0x8E24F0    # 槽 7
 
+ACTIVE_GAME_VERSION = "7.0.255"
+_PROFILE_CONSTANTS = [
+    "STUB_ENTRY_VA", "STUB_ENTRY_FILE", "STUB_TRAMP_VA", "STUB_TRAMP_FILE",
+    "STUB_SLOT_VA", "STUB_SLOT_FILE", "STUB_INFO_VA", "STUB_INFO_FILE",
+    "GP_VTABLE_OFF", "GP_UPDATE_OFF", "MTP_VTABLE_OFF", "MTP_GETPOS_OFF",
+]
+_BASE_PROFILE = {key: globals()[key] for key in _PROFILE_CONSTANTS}
+_BASE_HOOKS = list(BRK_HOOKS)
+_BASE_RESTORE = list(RESTORE_SITES)
+_BASE_STUB_EXPECT = STUB_ENTRY_EXPECT
+
+
+def configure_profile(version: str) -> None:
+    """Select both injection offsets and expected bytes for one game version."""
+    import json
+    global ACTIVE_GAME_VERSION, BRK_HOOKS, RESTORE_SITES, STUB_ENTRY_EXPECT
+    if version not in ("7.0.255", "7.0.256"):
+        raise RuntimeError(f"unsupported game version: {version}; adapt before injection")
+    globals().update(_BASE_PROFILE)
+    BRK_HOOKS = list(_BASE_HOOKS)
+    RESTORE_SITES = list(_BASE_RESTORE)
+    STUB_ENTRY_EXPECT = _BASE_STUB_EXPECT
+    if version == "7.0.256":
+        path = os.path.join(ROOT, "profiles", "ios_7.0.256.json")
+        with open(path, encoding="utf-8") as handle:
+            profile = json.load(handle)
+        globals().update({key: int(value, 0) for key, value in profile["constants"].items()})
+        BRK_HOOKS = [(name, int(site, 0), int(replay, 0), expect)
+                     for name, site, replay, expect in profile["brk_hooks"]]
+        RESTORE_SITES = [(name, int(site, 0), expect)
+                         for name, site, expect in profile["restore_sites"]]
+        STUB_ENTRY_EXPECT = bytes.fromhex(profile["stub_entry_expect"])
+    ACTIVE_GAME_VERSION = version
+
+
+def select_bundle_profile(main_path: str) -> None:
+    import plistlib
+    path = os.path.join(os.path.dirname(os.path.abspath(main_path)), "Info.plist")
+    # Standalone --check samples retain the historical 7.0.255 default.
+    version = "7.0.255"
+    if os.path.isfile(path):
+        with open(path, "rb") as handle:
+            version = plistlib.load(handle).get("CFBundleShortVersionString", "")
+    configure_profile(version)
+    print(f"[i] game address profile: {ACTIVE_GAME_VERSION}")
+
 
 def encode_adrp_add_br(pc_addr: int, dst: int, reg: int = 16) -> bytes:
     """ADRP reg, dst_page; ADD reg, reg, #pgoff; BR reg (12 bytes)."""
@@ -706,7 +752,9 @@ def insert_load_commands_inplace(data: bytearray, base: int) -> list[str]:
 
 
 def find_dylibs() -> list[str]:
-    candidates = [ROOT, os.path.join(ROOT, "ci-artifacts", "libxrcdemo-sideload")]
+    candidates = [ROOT,
+                  os.path.join(ROOT, "ci-artifacts", f"libxrcdemo-sideload-{ACTIVE_GAME_VERSION}"),
+                  os.path.join(ROOT, "ci-artifacts", "libxrcdemo-sideload")]
     found = []
     for name in DYLIB_NAMES:
         path = None
@@ -805,6 +853,7 @@ def main():
         if i + 1 >= len(sys.argv):
             print("usage: inject.py --check <Arc-mobile path>")
             sys.exit(1)
+        select_bundle_profile(sys.argv[i + 1])
         sys.exit(check_binary(sys.argv[i + 1]))
     do_stub = "--stub" in sys.argv
     do_brk = "--brk" in sys.argv
@@ -820,11 +869,21 @@ def main():
         print(f"[!] main not found: {MAIN}")
         sys.exit(1)
 
+    select_bundle_profile(MAIN)
+
     try:
         dylibs = find_dylibs()
     except FileNotFoundError as e:
         print(f"[!] {e}")
         sys.exit(1)
+
+    # 7.0.255 artifacts cannot handle the relocated 7.0.256 sites. Reject them
+    # before copying files or changing Info.plist/the executable.
+    if ACTIVE_GAME_VERSION == "7.0.256":
+        marker = b"xrc-profile:7.0.256"
+        if marker not in open(dylibs[0], "rb").read():
+            print("[!] libxrcdemo.dylib is not a 7.0.256 build; rebuild with XRC_GAME_VERSION=7.0.256")
+            sys.exit(3)
 
     # 配对校验（两条）：
     #   ① autoplay 桩（ap_*）需要 dylib 侧处理器（"autoplay-eve v1"）；
@@ -930,6 +989,7 @@ def main():
     import json as _json
     import datetime as _dt
     manifest = {
+        "game_version": ACTIVE_GAME_VERSION,
         "generated": _dt.datetime.now().isoformat(timespec="seconds"),
         "main": os.path.relpath(MAIN, ROOT).replace("\\", "/"),
         "applied": {

@@ -889,7 +889,7 @@ typedef struct {
 } xrc_static_patch_t;
 
 static const xrc_static_patch_t k_static_patches[] = {
-    { "dl_state_ready_merged", 0x844774, "ff4302d1fa6704a9", "00008052c0035fd6",
+    { "dl_state_ready_merged", XRC_OFF_DL_STATE_READY_FN, "ff4302d1fa6704a9", "00008052c0035fd6",
       "下载态总查询恒返就绪：全 App 下载/更新提示消失，接线上服务器时=曲目下载全失败" },
 };
 

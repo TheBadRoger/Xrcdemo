@@ -524,7 +524,7 @@ static int rpf_clear_buckets(uint64_t ng, uint32_t T) {
     xrc_logd(XRCLC_JUDGE, @"[rpf] ⟲⟲⟲ 跳桶预备：chart(ng+0x28)=%llx  执行器+0x280=%llx  一致=%s  桶数=%llu",
            chart, exq, (exq && exq == chart) ? "Y" : "N", cnt);
 
-    rpf_setbucket_t set = (rpf_setbucket_t)(g_xrc.image_base + (0x10091366CULL - 0x100000000ULL));
+    rpf_setbucket_t set = (rpf_setbucket_t)(g_xrc.image_base + XRC_OFF_REPLAY_SET_BUCKET);
     int n = 0;
     for (uint64_t i = 0; i < cnt; i++) {
         uint64_t slot = 0;
@@ -561,7 +561,7 @@ typedef uint64_t (*rpf_reg_note_t)(uint64_t ng, uint64_t note);
 // 做法：把表里的时间逐个改成一个极小值（见下方实现注释；不动 begin/end/cap）。
 static int rpf_clear_event_dedup(void) {
     uint64_t app = 0;
-    uint64_t gaddr = g_xrc.image_base + (0x101673DD8ULL - 0x100000000ULL);
+    uint64_t gaddr = g_xrc.image_base + XRC_OFF_APP_GLOBAL;
     if (!rd(gaddr, &app, 8) || !s_isptr(app)) return -1;
     uint64_t d = 0;
     if (!rd(app + 16, &d, 8) || !s_isptr(d)) return -1;
@@ -907,7 +907,7 @@ static void rpf_revive_main(void *ctx) {
     uint64_t ng = 0;
     if (j->scene) rd(j->scene + RPF_NOTEGRP, &ng, 8);
     if (s_ishp(ng)) {
-        rpf_reg_note_t pfill = (rpf_reg_note_t)(g_xrc.image_base + (0x10091B6CCULL - 0x100000000ULL));
+        rpf_reg_note_t pfill = (rpf_reg_note_t)(g_xrc.image_base + XRC_OFF_REPLAY_REGISTER_NOTE);
         uint64_t mb = 0, me = 0;
         /* 这一段是「在主队列上跑引擎自己的登记函数」。崩溃的表是 chart+0x80 的内联
            multimap（见 rpf_cmap_walk 注释），**它和这段代码操作的对象不是同一张表**
@@ -987,7 +987,7 @@ static void rpf_rebuild_main(void *ctx) {
         rd(mgr + RPF_RM_REG_BEGIN, &rb0, 8);
         rd(mgr + RPF_RM_REG_END, &re0, 8);
         long n0 = (s_ishp(rb0) && s_ishp(re0) && re0 >= rb0) ? (long)((re0 - rb0) / 8) : -1;
-        xrc_rebuild_t fn = (xrc_rebuild_t)(g_xrc.image_base + (0x100B22984ULL - 0x100000000ULL));
+        xrc_rebuild_t fn = (xrc_rebuild_t)(g_xrc.image_base + XRC_OFF_REPLAY_REBUILD_ARC);
         xrc_logd(XRCLC_JUDGE, @"[rpf] ⟲⟲⟲ 重建渲染对象（主队列）：%d 条 → mgr=%llx", n, mgr);
         fn((void *)mgr, vec, NULL);
         xrc_logd(XRCLC_JUDGE, @"[rpf] ⟲⟲⟲ 重建渲染对象：完成");
@@ -997,7 +997,7 @@ static void rpf_rebuild_main(void *ctx) {
         if (n0 >= 0 && s_ishp(rb1) && s_ishp(re1) && re1 > rb1) {
             long n1 = (long)((re1 - rb1) / 8);
             if (n1 < n0) n1 = n0;
-            xrc_line_t lf = (xrc_line_t)(g_xrc.image_base + (0x100AE3F5CULL - 0x100000000ULL));
+            xrc_line_t lf = (xrc_line_t)(g_xrc.image_base + XRC_OFF_REPLAY_DRAW_LINE);
             int nline = 0;
             for (long i = n0; i < n1; i++) {
                 uint64_t rn = 0, rvt = 0;

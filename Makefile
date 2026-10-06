@@ -4,6 +4,12 @@ ARCHS = arm64 arm64e
 
 # 构建轴：本地默认开发构建（调试工具 + DEBUG 日志）；CI 发布显式 XRC_DEBUG=0。
 XRC_DEBUG ?= 1
+XRC_GAME_VERSION ?= 7.0.255
+ifeq ($(XRC_GAME_VERSION),7.0.256)
+ADDITIONAL_CFLAGS += -DXRC_GAME_VERSION_7_0_256=1
+else ifneq ($(XRC_GAME_VERSION),7.0.255)
+$(error Unsupported XRC_GAME_VERSION: $(XRC_GAME_VERSION))
+endif
 
 # xrcdemo：侧载 dylib；主程序定点手术全部由 inject.py 完成（dylib 注入 / 判定桩 / BRK 站点）。
 LIBRARY_NAME = xrcdemo

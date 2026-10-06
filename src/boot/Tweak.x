@@ -342,9 +342,9 @@ static void xrc_apply_switches(void) {
 
 %ctor {
     NSString *gameVer = [NSBundle mainBundle].infoDictionary[@"CFBundleShortVersionString"] ?: @"?";
-    xrc_logi(XRCLC_BOOT, @"==== xrcdemo %@ build %s · %s · 基线 %@ ====",
+    xrc_logi(XRCLC_BOOT, @"==== xrcdemo %@ build %s · %s · %s · App %@ ====",
              XRC_VERSION, XRC_BUILD_STAMP,
-             XRC_DEBUG_BUILD ? "debug" : "release", gameVer);
+             XRC_DEBUG_BUILD ? "debug" : "release", XRC_GAME_PROFILE_MARKER, gameVer);
     // 游戏循环模式升级：面板滚动（滚动视图跟踪模式）期间谱面不再冻结
     @try { xrc_gameplay_displaylink_common_install(); } @catch (NSException *e) { xrc_logw(XRCLC_BOOT, @"displaylink common EX: %@", e); }
     @try { %init(ui); }   @catch (NSException *e) { xrc_logw(XRCLC_BOOT, @"%%init(ui) EX: %@", e); }

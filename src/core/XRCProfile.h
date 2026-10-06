@@ -386,3 +386,18 @@
 #define XRC_OM_OFF_VEC_CAP          (0x108)         // 同上 capacity
 #define XRC_OM_OFF_USER_ID          (0x140)         // 账号 user_id（字段语义已核对）
 #define XRC_OM_OFF_FIFTY            (0x148)         // dump 实测 50（= sub_10000A7F0 的 0x32）
+
+// Version-dependent replay entry points previously embedded in XRCReplay.m.
+#define XRC_OFF_REPLAY_SET_BUCKET    (0x91366CULL)
+#define XRC_OFF_REPLAY_REGISTER_NOTE (0x91B6CCULL)
+#define XRC_OFF_APP_GLOBAL           (0x1673DD8ULL)
+#define XRC_OFF_REPLAY_REBUILD_ARC    (0xB22984ULL)
+#define XRC_OFF_REPLAY_DRAW_LINE      (0xAE3F5CULL)
+#define XRC_OFF_DL_STATE_READY_FN    (0x844774ULL)
+
+#if defined(XRC_GAME_VERSION_7_0_256)
+#include "XRCProfile_7_0_256.h"
+#define XRC_GAME_PROFILE_MARKER "xrc-profile:7.0.256"
+#else
+#define XRC_GAME_PROFILE_MARKER "xrc-profile:7.0.255"
+#endif

@@ -4,11 +4,11 @@
 
 | 项目 | 当前配置 |
 | :--- | :--- |
-| 🎮 适配基线 | **Arcaea iOS 7.0.255** |
-| 📱 构建目标 | iOS 14.0 起，`arm64` / `arm64e` |
-| 🧩 运行组件 | `libxrcdemo.dylib` + `libellekit.dylib` |
-| 🛠️ 注入工具 | Python 3.9+，仅使用标准库 |
-| 📦 安装流程 | 注入 → 校验 → 打包 IPA → 重新签名 → 侧载安装 |
+| 适配基线 | **Arcaea iOS 7.0.255**；7.0.256 正在适配，尚未完成真机验证 |
+| 构建目标 | iOS 14.0 起，`arm64` / `arm64e` |
+| 运行组件 | `libxrcdemo.dylib` + `libellekit.dylib` |
+| 注入工具 | Python 3.9+，仅使用标准库 |
+| 安装流程 | 注入 → 校验 → 打包 IPA → 重新签名 → 侧载安装 |
 
 > 构建目标不等于全部设备与系统版本均已验证。主程序补丁绑定游戏版本；其他版本必须先完成适配。
 >
@@ -20,23 +20,23 @@
 
 | 功能 | 使用效果 |
 | :--- | :--- |
-| ↩️ 回跳重播 | 回到已游玩的段落，重置相关判定与计分状态，让音符重新出现 |
-| ⏩ 时间跳转 | 跳到指定时刻；单独使用时不恢复已判定音符、不回滚计分 |
-| 🔁 A/B 循环 | 重复练习指定区间，可配合回跳重播使用 |
-| 🎵 变速 | 调整谱面播放速度，并提供保音高的音乐变速 |
-| 🎯 判定调整 | 四档判定窗口；需要注入判定桩 |
-| ▶️ 自动演奏 | 用于演示与练习；面板开关默认关闭 |
-| 🌐 私服接入 | 重定向 API 地址，保留请求路径和参数 |
-| 📂 内容外置 | 将 cb 内容目录外置到 App 的 `Documents`，便于管理 |
-| 🔓 锁态覆盖 | FV/DO 五难度锁态覆盖及终章链门放行；不会自动下载缺失内容 |
-| 🧩 cb 内容定制 | 放行内容包校验，保留现有内容树 |
-| 🛡️ 链系统保护 | 防止部分改名、移动曲包引起的空指针崩溃 |
+| 回跳重播 | 回到已游玩的段落，重置相关判定与计分状态，让音符重新出现 |
+| 时间跳转 | 跳到指定时刻；单独使用时不恢复已判定音符、不回滚计分 |
+| A/B 循环 | 重复练习指定区间，可配合回跳重播使用 |
+| 变速 | 调整谱面播放速度，并提供保音高的音乐变速 |
+| 判定调整 | 四档判定窗口；需要注入判定桩 |
+| 自动演奏 | 用于演示与练习；面板开关默认关闭 |
+| 私服接入 | 重定向 API 地址，保留请求路径和参数 |
+| 内容外置 | 将 cb 内容目录外置到 App 的 `Documents`，便于管理 |
+| 锁态覆盖 | FV/DO 五难度锁态覆盖及终章链门放行；不会自动下载缺失内容 |
+| cb 内容定制 | 放行内容包校验，保留现有内容树 |
+| 链系统保护 | 防止部分改名、移动曲包引起的空指针崩溃 |
 
 配置：`Documents/xrcdemo.plist` · 日志：`Documents/xrcdemo.log`。
 
 ## 构建
 
-### ① 选择方式
+### 1. 选择方式
 
 | 方式 | 所需环境 | 产物 |
 | :--- | :--- | :--- |
@@ -44,18 +44,18 @@
 | **macOS 本地构建** | 完整 Xcode、Theos、iOS SDK、`ldid` | 需自行整理侧载动态库 |
 | **Windows 部署** | Python、已构建的 dylib、签名工具 | 待签名 IPA；不是原生 iOS 编译流程 |
 
-### ② GitHub Actions 构建
+### 2. GitHub Actions 构建
 
 1. 将源码推送到你的仓库。Fork 后如 Actions 尚未启用，先在 **Actions** 页面启用工作流。
-2. 推送提交，触发 [Build xrcdemo](.github/workflows/build-tweak.yml)。当前工作流仅配置了 `push` 触发。
+2. 推送提交，触发 [Build xrcdemo](.github/workflows/build-tweak.yml)。也可在 Actions 中选择 **Build xrcdemo → Run workflow → ios 分支** 手动运行。
 3. 等待构建成功，打开对应运行记录。
-4. 下载 **Artifacts → `libxrcdemo-sideload`**，将两个 dylib 解压到项目根目录。
+4. 下载 **Artifacts → `libxrcdemo-sideload-7.0.256`（或对应的 `7.0.255` 产物）**，将两个 dylib 解压到项目根目录。
 
-✅ CI 会编译发布版、调整动态库依赖和安装名，并对 dylib 做临时签名。
+ CI 会编译发布版、调整动态库依赖和安装名，并对 dylib 做临时签名。
 
-⚠️ **CI 产物不包含源 App 或可直接安装的 IPA。** 优先使用与当前源码提交一致的构建；部署时还需准备已解密的 App，并对整个 App 重新签名。
+**CI 产物不包含源 App 或可直接安装的 IPA。** 优先使用与当前源码提交一致的构建；部署时还需准备已解密的 App，并对整个 App 重新签名。
 
-### ③ macOS 本地构建
+### 3. macOS 本地构建
 
 安装完整 Xcode，按 [Theos 官方指南](https://theos.dev/docs/installation-macos) 配置 Theos 和 iOS SDK，并设置 `THEOS` 环境变量。当前 CI 使用 `iPhoneOS14.5.sdk`；完整流程见 [工作流文件](.github/workflows/build-tweak.yml)。
 
@@ -64,7 +64,7 @@
 ```sh
 brew install ldid
 make clean
-make XRC_DEBUG=0
+make XRC_DEBUG=0 XRC_GAME_VERSION=7.0.256
 mkdir -p out
 DYLIB=$(find .theos/obj -name 'xrcdemo.dylib' -not -path '*.dSYM*' | head -n 1)
 test -n "$DYLIB" && cp "$DYLIB" out/libxrcdemo.dylib
@@ -97,13 +97,26 @@ cp out/libxrcdemo.dylib out/libellekit.dylib .
 
 ## 部署
 
+### 前置条件：使用配套砸壳 App
+
+**必须使用与本套件配套的砸壳 App，并确保已完成解密和套件所需的相关校验检查处理。** 仅将官方 IPA 解压，或仅将主程序解密，不能证明满足全部运行条件。注入器不是完整的砸壳工具，也不会自动取消所有游戏校验。
+
+砸壳包获取来源：[LingFeng751/ArcaeaDarkMode](https://github.com/LingFeng751/ArcaeaDarkMode)，下载文件及版本见其 [Releases](https://github.com/LingFeng751/ArcaeaDarkMode/releases)。按文件说明选择适用包：上游将 `Original.Plugin.ipa` 描述为未经修改的原版砸壳包，未承诺取消所有游戏内容校验，因此仍需核对具体包与套件的兼容性。
+
+不要将关闭内容校验覆盖开关视为满足砸壳前置条件的替代方案。此前仅恢复启动的诊断配置已撤下；正常启动不等于全部功能验证通过。
+
+| 游戏版本 | 当前状态 |
+| :--- | :--- |
+| 7.0.255 | 现有注入器和动态库的地址基线；需要配套砸壳 App |
+| 7.0.256 | **适配中**：判定入口及多个功能站点发生变化，已更新注入器与运行时地址配置；正在完成配套动态库构建，尚未真机验证；详见 [适配记录](docs/ios-7.0.256-adaptation.md) |
+
 **流程：准备文件 → 备份 → 注入 → 校验 → 打包 → 签名安装 → 真机验证**
 
 以下命令均从项目根目录运行；若系统的 Python 命令为 `python3`，请相应替换 `python`。
 
-### ① 准备文件并备份
+### 1. 准备文件并备份
 
-将你自行准备的、**已解密且版本匹配**的 IPA 解压到 `ios/`，确保路径如下：
+将你自行准备的、**满足上述砸壳前置条件且版本匹配**的 IPA 解压到 `ios/`，确保路径如下：
 
 ```text
 xrcdemo/
@@ -120,14 +133,15 @@ xrcdemo/
 
 | 检查项 | 要求 |
 | :--- | :--- |
-| 游戏版本 | `7.0.255`；其他版本见跨版本适配 |
-| 主程序 | 已解密；“IPA 已解压”不等于“主程序已解密” |
-| 动态库 | 两个文件齐全，与注入器实现配套；也可放在 `ci-artifacts/libxrcdemo-sideload/` |
+| 游戏版本 | `7.0.255` 或适配中的 `7.0.256`；必须使用对应版本的动态库 |
+| 主程序 | 使用配套砸壳版本；仅解压或解密不能代替相关校验检查处理 |
+| 动态库 | 两个文件齐全，与注入器实现配套；也可放在 `ci-artifacts/libxrcdemo-sideload-7.0.256/`（按游戏版本选择） |
 | 备份 | 保存完整源 App；注入器原位修改文件，不自动备份 |
 
-⚠️ **全新安装首次启动**：当前版本默认开启 `cbBypass`。在尚未初始化 cb 内容的设备上，已观察到启动闪退；关闭此项后可正常启动。建议首次启动使用 [首次启动配置](examples/first-launch/xrcdemo.plist)，具体操作见下方[已验证的启动问题](#已验证的启动问题)。
 
-### ② 注入发布版补丁
+### 2. 注入发布版补丁
+
+注入器读取 App 的 `Info.plist` 自动选择游戏版本。7.0.256 必须使用重新构建的配套动态库，不能沿用 7.0.255 产物。
 
 ```sh
 python inject.py --stub --brk --profile release
@@ -144,7 +158,7 @@ python inject.py --stub --brk --profile release
 
 **不要只复制 dylib 就安装，也不要只打桩而不加载 dylib。** 任一步报错，都应先处理错误再签名。
 
-### ③ 校验补丁
+### 3. 校验补丁
 
 ```sh
 python inject.py --check ios/Payload/Arc-mobile.app/Arc-mobile
@@ -161,7 +175,7 @@ python inject.py --check ios/Payload/Arc-mobile.app/Arc-mobile
 
 > `--check` 是静态检查，不能代替签名验证和真机功能测试。
 
-### ④ 按需修改名称与 Bundle ID
+### 4. 按需修改名称与 Bundle ID
 
 | 修改目标 | 操作 |
 | :--- | :--- |
@@ -172,7 +186,7 @@ python inject.py --check ios/Payload/Arc-mobile.app/Arc-mobile
 
 例如：主 App 为 `moe.low.arc.exercise` 时，通知扩展应为 `moe.low.arc.exercise.NotificationServiceExtension`。仅修改显示名称无需修改可执行文件名或 `.app` 文件夹名。
 
-### ⑤ 打包待签名 IPA
+### 5. 打包待签名 IPA
 
 **IPA 是 ZIP 格式，顶层必须包含 `Payload/`。** 备份、日志、证书和补丁清单应留在包外。
 
@@ -213,7 +227,7 @@ with zipfile.ZipFile(root / "Arc-Exercise-unsigned.ipa", "w",
             shutil.copyfileobj(source, target)
 ```
 
-### ⑥ 签名与安装
+### 6. 签名与安装
 
 | 签名方式 | 操作 |
 | :--- | :--- |
@@ -229,11 +243,11 @@ zsign -k certificate.p12 -p 'YOUR_PASSWORD' \
   -o Arc-Exercise-signed.ipa Arc-Exercise-unsigned.ipa
 ```
 
-✅ 描述文件、证书、Bundle ID 和设备授权需要匹配。若描述文件限定了其他 Bundle ID，签名时用 `-b` 指定该 ID；保留扩展时还需匹配的扩展签名配置。
+ 描述文件、证书、Bundle ID 和设备授权需要匹配。若描述文件限定了其他 Bundle ID，签名时用 `-b` 指定该 ID；保留扩展时还需匹配的扩展签名配置。
 
-⚠️ dylib 的临时签名不等于 App 已具备安装资格；修改主程序、配置或动态库后，都必须重新签名。
+ dylib 的临时签名不等于 App 已具备安装资格；修改主程序、配置或动态库后，都必须重新签名。
 
-### ⑦ 真机验证
+### 7. 真机验证
 
 - [ ] App 可正常安装、启动，悬浮球和练习面板可打开。
 - [ ] 日志首行显示预期版本、构建标识和游戏基线。
@@ -247,14 +261,14 @@ zsign -k certificate.p12 -p 'YOUR_PASSWORD' \
 
 | 步骤 | 需要完成的工作 | 涉及文件 |
 | :--- | :--- | :--- |
-| 1️⃣ 准备样本 | 保留新版本已解密主程序及原始备份，确认架构和 Mach-O 段布局 | 新版本 App |
-| 2️⃣ 定位函数 | 按入口指令、调用关系和行为定位判定核、每帧更新、时钟及音频链 | 反汇编结果 |
-| 3️⃣ 核对布局 | 验证对象字段偏移、vtable 槽、函数参数与返回值 | `src/core/XRCProfile.h`、必要时 `xrc_abi.h` |
-| 4️⃣ 定位站点 | 更新站点地址及原字节指纹，不能直接沿用旧版本地址 | `inject.py`、`XRCProfile.h` |
-| 5️⃣ 分配跳板 | 确认 `__TEXT` / `__DATA` 中有足够零填充空间，跳板、slot、info blob 不重叠 | `inject.py` 的 `STUB_*`、BRK replay 地址 |
-| 6️⃣ 同步运行时 | 同步站点表、锚点、默认偏移及处理器，保持名称和布局一致 | `XRCProfile.h` ↔ `inject.py` ↔ `src/core/XRCHook.m` |
-| 7️⃣ 重建与注入 | 重新编译 dylib，对原始新版本 App 注入并执行 `--check` | 构建与部署流程 |
-| 8️⃣ 真机验收 | 分别验证启动、判定、回跳、循环、音频和内容功能，再确认支持范围 | 设备日志及实际游玩 |
+| 1 准备样本 | 保留新版本已解密主程序及原始备份，确认架构和 Mach-O 段布局 | 新版本 App |
+| 2 定位函数 | 按入口指令、调用关系和行为定位判定核、每帧更新、时钟及音频链 | 反汇编结果 |
+| 3 核对布局 | 验证对象字段偏移、vtable 槽、函数参数与返回值 | `src/core/XRCProfile.h`、必要时 `xrc_abi.h` |
+| 4 定位站点 | 更新站点地址及原字节指纹，不能直接沿用旧版本地址 | `inject.py`、`XRCProfile.h` |
+| 5 分配跳板 | 确认 `__TEXT` / `__DATA` 中有足够零填充空间，跳板、slot、info blob 不重叠 | `inject.py` 的 `STUB_*`、BRK replay 地址 |
+| 6 同步运行时 | 同步站点表、锚点、默认偏移及处理器，保持名称和布局一致 | `XRCProfile.h` ↔ `inject.py` ↔ `src/core/XRCHook.m` |
+| 7 重建与注入 | 重新编译 dylib，对原始新版本 App 注入并执行 `--check` | 构建与部署流程 |
+| 8 真机验收 | 分别验证启动、判定、回跳、循环、音频和内容功能，再确认支持范围 | 设备日志及实际游玩 |
 
 适配时重点检查：
 
@@ -277,38 +291,6 @@ zsign -k certificate.p12 -p 'YOUR_PASSWORD' \
 | `Failed to re-fetch bundle during preflight` | 这是外层错误；读取设备 `installd` 日志中的底层错误再判断 |
 | 安装成功但启动崩溃 | 签名、动态库依赖、架构、功能处理器及游戏版本 |
 | 面板出现但功能不可用 | 判定桩、选定功能站点及 `[probe] summary` 状态 |
-
-### 已验证的启动问题
-
-**首次安装没有 cb 内容，开启 `cbBypass` 时可能启动闪退。** 该配置不仅放行内容校验，还会让 `cb_ready` 无条件返回“已就绪”；就绪状态不能证明内容已经初始化。
-
-| 项目 | 实测记录 |
-| :--- | :--- |
-| 验证日期 | 2026-10-06 |
-| 环境 | iPad（`iPad12,1`）、iPadOS 26.6.1、Arcaea 7.0.255 |
-| 套件 | 发布构建 `e4af9aa-10011916`，主程序已修正 Mach-O 加载命令，未包含通知扩展 |
-| 启动日志 | SIGTRAP 处理器已安装；首次启动无既有 cb，仅创建 `Documents/cb` 占位目录 |
-| 崩溃报告 | `document.h:1226`、`Size`、`IsArray()` 断言失败，经 `__assert_rtn → abort` 退出；报告中的断点地址对应 `cb_ready` |
-| 最小验证 | 无需重新签名或安装，将 `cbBypass` 设为 `false` 后重新启动 |
-| 用户确认结果 | **可正常启动**；其他练习功能及不同设备、版本仍需分别验证 |
-
-**处理步骤：**
-
-1. 完全退出 App，备份 `Documents/xrcdemo.plist`。
-2. 若已有配置，仅将 `cbBypass` 改为 `false`，保留其他键：
-
-   ```xml
-   <key>cbBypass</key>
-   <false/>
-   ```
-
-3. 若没有自定义配置，可使用 [examples/first-launch/xrcdemo.plist](examples/first-launch/xrcdemo.plist)。此文件仅指定 `cbBypass=false`，其他设置采用套件默认值。
-4. 将文件以 **`xrcdemo.plist`** 的名称放回 App 的 Documents 根目录。在 iPad 上对应“文件 → 我的 iPad → App 显示名称”，不要放入 `cb` 子目录。
-5. 重新启动并检查 `xrcdemo.log`。如果仍闪退，获取新的 `.ips`，确认是否仍为同一断言。
-
-此操作关闭 cb 校验覆盖，但保留已注入的其他功能。它不会移除既有的内容外置软链，也不要求清空 cb 或卸载 App。启动验证通过后先保持 `cbBypass` 关闭；重新开启前需要确认内容已完整初始化。
-
-> 这是已验证的配置规避方式，源码的默认值和强制就绪逻辑尚未修改；未据此宣称所有首次启动问题都已修复。
 
 注入器加载命令回归测试：
 

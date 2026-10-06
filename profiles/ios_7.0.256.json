@@ -1,0 +1,202 @@
+{
+  "game_version": "7.0.256",
+  "source_sha256": "eae2722958eac2f7358d97a3a7e172726a59577fa15b98d70d747f7815d3e613",
+  "constants": {
+    "STUB_ENTRY_FILE": "0x920788",
+    "STUB_ENTRY_VA": "0x100920788",
+    "STUB_TRAMP_FILE": "0x146c00c",
+    "STUB_TRAMP_VA": "0x10146c00c",
+    "STUB_SLOT_FILE": "0x164ef28",
+    "STUB_SLOT_VA": "0x10164ef28",
+    "STUB_INFO_FILE": "0x164ef40",
+    "STUB_INFO_VA": "0x10164ef40",
+    "GP_VTABLE_OFF": "0x1521dc0",
+    "GP_UPDATE_OFF": "0xcaa7c0",
+    "MTP_VTABLE_OFF": "0x14bb930",
+    "MTP_GETPOS_OFF": "0x8e4274"
+  },
+  "stub_entry_expect": "f85fbca9f65701a9f44f02a9",
+  "brk_hooks": [
+    [
+      "applog_send",
+      "0x1006257dc",
+      "0x10146c040",
+      "eb2bb86d"
+    ],
+    [
+      "applog_blob",
+      "0x10063b6d4",
+      "0x10146c050",
+      "e0a30791"
+    ],
+    [
+      "unlock_l1",
+      "0x100be70bc",
+      "0x10146c058",
+      "09c441f9"
+    ],
+    [
+      "unlock_l2",
+      "0x100be70fc",
+      "0x10146c060",
+      "ff0302d1"
+    ],
+    [
+      "unlock_l3",
+      "0x100be7748",
+      "0x10146c068",
+      "fd7bbfa9"
+    ],
+    [
+      "cb_ready",
+      "0x100f463d4",
+      "0x10146c078",
+      "00a04039"
+    ],
+    [
+      "cb_filehash",
+      "0x100f480fc",
+      "0x0",
+      "21110054"
+    ],
+    [
+      "cb_listhash",
+      "0x100f48210",
+      "0x0",
+      "21090054"
+    ],
+    [
+      "cb_wipe",
+      "0x100f46d68",
+      "0x10146c120",
+      "ffc301d1"
+    ],
+    [
+      "cb_dispatch",
+      "0x10013e2a4",
+      "0x10146c088",
+      "ff0304d1"
+    ],
+    [
+      "ap_ln_state",
+      "0x10091fccc",
+      "0x10146c0b0",
+      "08904139"
+    ],
+    [
+      "ap_ln_tick",
+      "0x10091fd4c",
+      "0x10146c0b8",
+      "680340f9"
+    ],
+    [
+      "ap_note_win",
+      "0x10091fe74",
+      "0x10146c0c0",
+      "5f00086b"
+    ],
+    [
+      "ap_arctap_win",
+      "0x100920038",
+      "0x10146c0c8",
+      "5f00086b"
+    ],
+    [
+      "ap_swallow_judge",
+      "0x100920ccc",
+      "0x10146c0d0",
+      "ffc305d1"
+    ],
+    [
+      "ap_swallow_batch",
+      "0x10092178c",
+      "0x10146c0d8",
+      "ff8302d1"
+    ],
+    [
+      "ap_swallow_touch",
+      "0x100923ec8",
+      "0x10146c0e0",
+      "ff0302d1"
+    ],
+    [
+      "ap_arc_visual",
+      "0x10091ed88",
+      "0x10146c0e8",
+      "1f200079"
+    ],
+    [
+      "ap_tickcnt1",
+      "0x10091fdc0",
+      "0x10146c0f0",
+      "fa0300aa"
+    ],
+    [
+      "ap_tickcnt2",
+      "0x10091fec0",
+      "0x10146c0f8",
+      "fa0300aa"
+    ],
+    [
+      "lock_fv",
+      "0x100993668",
+      "0x10146c100",
+      "f44fbea9"
+    ],
+    [
+      "lock_do",
+      "0x100ab0958",
+      "0x10146c108",
+      "ff4303d1"
+    ],
+    [
+      "fv_gate",
+      "0x1009936cc",
+      "0x10146c110",
+      "ff0303d1"
+    ],
+    [
+      "chain_prog",
+      "0x100991c7c",
+      "0x10146c118",
+      "ffc302d1"
+    ],
+    [
+      "rpf_draw",
+      "0x100b25e0c",
+      "0x0",
+      "eb2b056d"
+    ],
+    [
+      "rpf_arctick",
+      "0x100b0233c",
+      "0x0",
+      "ed33016d"
+    ],
+    [
+      "rpf_arcpass",
+      "0x100b021bc",
+      "0x0",
+      "eb2b026d"
+    ],
+    [
+      "arc_hide_a",
+      "0x100b02288",
+      "0x0",
+      "01008052"
+    ],
+    [
+      "arc_hide_b",
+      "0x100b025a8",
+      "0x0",
+      "01008052"
+    ]
+  ],
+  "restore_sites": [
+    [
+      "cb_verify",
+      "0x100f4715c",
+      "fc6fbaa9"
+    ]
+  ]
+}
