@@ -212,15 +212,12 @@ static _Atomic(bool) s_cb_bypass = false;
 void xrc_brk_set_cb_bypass(bool on) { atomic_store(&s_cb_bypass, on); }
 bool xrc_brk_cb_bypass(void)        { return atomic_load(&s_cb_bypass); }
 
-// 就绪位 getter 桩：恒真直返
-static void s_cb_ready_true(void *vctx) {
-    if (!atomic_load(&s_cb_bypass)) return;
-    ucontext_t *uc = (ucontext_t *)vctx;
-    if (!uc || !uc->uc_mcontext) return;
-    __typeof__(uc->uc_mcontext->__ss) *ss = &uc->uc_mcontext->__ss;
-    ss->__x[0] = 1;
-    __darwin_arm_thread_state64_set_pc_fptr(*ss,
-        (void *)__darwin_arm_thread_state64_get_lr(*ss));
+// Readiness is initialization state, not a checksum verdict. Always replay the
+// original getter: claiming readiness for an empty/new cb enters manifest parsing
+// before its arrays exist (document.h Size()/IsArray() assertion on first launch).
+// Hash overrides and the wipe guard below remain controlled by s_cb_bypass.
+static void s_cb_ready_native(void *vctx) {
+    (void)vctx;
 }
 
 // void 函数整体跳过桩（错码分发）：x0 不动，直接按 LR 返回
@@ -709,7 +706,7 @@ static const xrc_brk_entry_t k_brk_entries[] = {
     { "unlock_l1",   XRC_BRK_UNLOCK_L1_SITE_OFF,  XRC_BRK_UNLOCK_L1_REPLAY_OFF,  s_unlock_force_true },
     { "unlock_l2",   XRC_BRK_UNLOCK_L2_SITE_OFF,  XRC_BRK_UNLOCK_L2_REPLAY_OFF,  s_unlock_force_true },
     { "unlock_l3",   XRC_BRK_UNLOCK_L3_SITE_OFF,  XRC_BRK_UNLOCK_L3_REPLAY_OFF,  s_unlock_force_true },
-    { "cb_ready",    XRC_BRK_CB_READY_SITE_OFF,   XRC_BRK_CB_READY_REPLAY_OFF,   s_cb_ready_true },
+    { "cb_ready",    XRC_BRK_CB_READY_SITE_OFF,   XRC_BRK_CB_READY_REPLAY_OFF,   s_cb_ready_native },
     // cb 自由化：三站点 = "校验结论恒通过"（语义见 XRCProfile.h）
     { "cb_filehash", XRC_BRK_CB_FILEHASH_SITE_OFF, 0,                            s_cb_cond_skip },
     { "cb_listhash", XRC_BRK_CB_LISTHASH_SITE_OFF, 0,                            s_cb_cond_skip },
@@ -1010,6 +1007,7 @@ void xrc_brk_setup(uint64_t image_base) {
     // 配对标记 ②：链进度覆盖桩（chain_prog，7.0 新增「链」系统的查表点）由本 dylib 处理；
     // 旧 dylib 命中该站点会重放原指令 → 崩因依旧，注入脚本据此拒配。此桩**不设开关、恒生效**。
     xrc_logi(XRCLC_BOOT, @"[brk] chain-guard v1 ready (chain_prog -> 100, always-on)");
+    xrc_logi(XRCLC_BOOT, @"[brk] cb-ready-native v1: initialization readiness preserved; hash/wipe overrides unchanged");
     // 开关组（策略/plist 驱动）
     xrc_logi(XRCLC_BOOT, @"[brk] switches: own=%d fv=%d do=%d gate=%d (slots=%d)",
             (int)atomic_load(&s_unlock_own), (int)atomic_load(&s_unlock_fv),
