@@ -47,6 +47,8 @@ static void s_ensure_defaults(NSMutableDictionary *p) {
     if (!p[@"judgePureMs"]) p[@"judgePureMs"] = @50;
     if (!p[@"judgeFarMs"])  p[@"judgeFarMs"]  = @100;
     if (!p[@"judgeLostMs"]) p[@"judgeLostMs"] = @120;
+    if (!p[@"judgeTimeLock"]) p[@"judgeTimeLock"] = @NO;
+    if (!p[@"noteFlow"]) p[@"noteFlow"] = @0;
     // 私服接入：默认关闭；地址留空（面板占位符给示例），需要时自行填写
     if (!p[@"netEnabled"]) p[@"netEnabled"] = @NO;
     if (!p[@"netBase"])    p[@"netBase"]    = @"";
@@ -127,6 +129,8 @@ void xrc_config_load(xrc_config_t *out) {
     out->judge_pure_ms  = [prefs[@"judgePureMs"] intValue];
     out->judge_far_ms   = [prefs[@"judgeFarMs"] intValue];
     out->judge_lost_ms  = [prefs[@"judgeLostMs"] intValue];
+    out->judge_time_lock = [prefs[@"judgeTimeLock"] boolValue];
+    out->note_flow = [prefs[@"noteFlow"] doubleValue];
     xrc_config_normalize_judge(out);
     out->net_enabled    = [prefs[@"netEnabled"] boolValue];
     out->net_base       = [prefs[@"netBase"] length] ? prefs[@"netBase"] : nil;
@@ -156,6 +160,8 @@ void xrc_config_save(const xrc_config_t *c) {
     p[@"judgePureMs"]   = @(c->judge_pure_ms);
     p[@"judgeFarMs"]    = @(c->judge_far_ms);
     p[@"judgeLostMs"]   = @(c->judge_lost_ms);
+    p[@"judgeTimeLock"] = @(c->judge_time_lock);
+    p[@"noteFlow"] = @(c->note_flow);
     p[@"netEnabled"]    = @(c->net_enabled);
     p[@"netBase"]       = c->net_base ?: @"";
     p[@"netMatch"]      = c->net_match ?: @"";

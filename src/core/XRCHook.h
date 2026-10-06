@@ -30,6 +30,7 @@ void xrc_brk_static_report(uint64_t image_base);
 // 本构建是否包含某功能（= 该功能的 BRK 站点是否真的注入了；对应 inject.py 的 FEATURES）。
 // 面板据此只显示本构建含有的项；未登记的名字 / 自检未跑时返回 true（不隐藏）。
 bool xrc_feature_present(const char *feature);
+bool xrc_feature_complete(const char *feature);
 
 // 早期装配：在 %ctor 里调用（安装处理器 + 立即注册，主程序基址经 dyld 自取）。
 // 注册与处理器安装必须同刻——启动极早期就命中的桩（如 cb 校验）等不到 didFinishLaunching。

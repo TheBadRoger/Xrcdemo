@@ -23,6 +23,7 @@ xrcdemo_FILES += src/gameplay/XRCClock.m
 xrcdemo_FILES += src/gameplay/XRCPlayer.m
 xrcdemo_FILES += src/gameplay/XRCAudio.m
 xrcdemo_FILES += src/gameplay/XRCJudge.m
+xrcdemo_FILES += src/gameplay/XRCFlow.m
 xrcdemo_FILES += src/gameplay/XRCReplay.m
 xrcdemo_FILES += src/content/XRCNet.m
 xrcdemo_FILES += src/content/XRCStore.m

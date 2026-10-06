@@ -25,6 +25,7 @@
 #undef _XOPEN_SOURCE
 
 #import <Foundation/Foundation.h>
+#include "XRCPracticeMath.h"
 
 #include <signal.h>
 #include <stdatomic.h>
@@ -436,7 +437,6 @@ static void s_ap_ln_tick(void *vctx) {
 // 谱面时刻 >= note+0x1C（窗口时刻）→ 直调 commit(Pure, judge_time=窗口时刻) + fx[1]，
 // PC 跳至原版汇合点；未到窗口 → 不改 PC → 重放原 CMP（NZCV 由真实执行产生，分支语义不变）。
 static void s_ap_window(void *vctx, int note_reg, uint64_t cont_off, _Atomic(uint32_t) *ctr) {
-    if (!xrc_judge_autoplay()) return;
     ucontext_t *uc = (ucontext_t *)vctx;
     if (!uc || !uc->uc_mcontext) return;
     __typeof__(uc->uc_mcontext->__ss) *ss = &uc->uc_mcontext->__ss;
@@ -447,6 +447,13 @@ static void s_ap_window(void *vctx, int note_reg, uint64_t cont_off, _Atomic(uin
     if (!mb || !s_ap_ptr_ok(note) || !s_ap_ptr_ok(ng) || now < 0) return;
     if (s_ap_ld8(note + XRC_NOTE_ACTIVE_OFF) != 1) return;   // active（外部参考实现同款守卫）
     int32_t t_end = (int32_t)s_ap_ld32(note + XRC_NOTE_TIME_END_OFF);
+    if (xrc_judge_time_lock()) {
+        int32_t native_ms = (int32_t)ss->__x[8] - t_end;
+        // Shared note site handles +100 and +200; preserve the actual path.
+        if (native_ms == 100 || native_ms == 200)
+            ss->__x[8] = (uint32_t)xrc_practice_bound(t_end, xrc_judge_scaled_window(native_ms));
+    }
+    if (!xrc_judge_autoplay()) return;
     if (t_end > now) return;   // 窗口未到：原版比较继续（重放）
     xrc_judge_autoplay_pure(ng, note, t_end);
     atomic_fetch_add(ctr, 1);
@@ -454,6 +461,38 @@ static void s_ap_window(void *vctx, int note_reg, uint64_t cont_off, _Atomic(uin
 }
 
 static void s_ap_note_win(void *vctx)   { s_ap_window(vctx, 28, XRC_AP_NOTE_WIN_CONT_OFF, &s_ap_stat_win_note); }
+static void s_timing_input(void *vctx) {
+    if (!xrc_judge_time_lock()) return;
+    ucontext_t *uc = (ucontext_t *)vctx;
+    if (!uc || !uc->uc_mcontext) return;
+    __typeof__(uc->uc_mcontext->__ss) *ss = &uc->uc_mcontext->__ss;
+    ss->__x[10] = (uint32_t)xrc_practice_bound((int32_t)ss->__x[9], xrc_judge_scaled_window(100));
+}
+static void s_timing_arc_input(void *vctx) {
+    if (!xrc_judge_time_lock()) return;
+    ucontext_t *uc = (ucontext_t *)vctx;
+    if (!uc || !uc->uc_mcontext) return;
+    __typeof__(uc->uc_mcontext->__ss) *ss = &uc->uc_mcontext->__ss;
+    uint64_t note = ss->__x[1];
+    if (!s_ap_ptr_ok(note)) return;
+    int32_t start = (int32_t)s_ap_ld32(note + XRC_NOTE_TIME_OFF);
+    ss->__x[9] = (uint32_t)xrc_practice_bound(start, -xrc_judge_scaled_window(120));
+}
+static void s_flow_ui(void *vctx) {
+    ucontext_t *uc = (ucontext_t *)vctx;
+    if (!uc || !uc->uc_mcontext) return;
+    __typeof__(uc->uc_mcontext->__ss) *ss = &uc->uc_mcontext->__ss;
+    uint64_t base = atomic_load(&s_main_base);
+    if (!base) return;
+    uint64_t app = s_ap_ld64(base + XRC_OFF_APP_GLOBAL);
+    if (!s_ap_ptr_ok(app)) return;
+    uint64_t settings = s_ap_ld64(app + 112);
+    if (!s_ap_ptr_ok(settings)) return;
+    int32_t units = (int32_t)s_ap_ld32(settings + 12);
+    if (units < 1) return;
+    ss->__x[8] = (uint32_t)units;
+    ss->__x[11] = INT32_MAX;
+}
 static void s_ap_arctap_win(void *vctx) { s_ap_window(vctx, 27, XRC_AP_ARCTAP_WIN_CONT_OFF, &s_ap_stat_win_tap); }
 
 // 引擎 tick 计数（诊断；命中点 = 两个 tick 助手的返回后 MOV X26,X0，X0 = 本次 tick 数）。
@@ -704,6 +743,9 @@ static const xrc_brk_entry_t k_brk_entries[] = {
     { "applog_send", XRC_BRK_APPLOG_SITE_OFF,     XRC_BRK_APPLOG_REPLAY_OFF,     s_applog_capture },
     { "applog_blob", XRC_BRK_APPLOG_BLOB_SITE_OFF, XRC_BRK_APPLOG_BLOB_REPLAY_OFF, s_applog_blob_capture },
     { "unlock_l1",   XRC_BRK_UNLOCK_L1_SITE_OFF,  XRC_BRK_UNLOCK_L1_REPLAY_OFF,  s_unlock_force_true },
+    { "timing_input", XRC_BRK_TIMING_INPUT_SITE_OFF, XRC_BRK_TIMING_INPUT_REPLAY_OFF, s_timing_input },
+    { "timing_arc_input", XRC_BRK_TIMING_ARC_INPUT_SITE_OFF, XRC_BRK_TIMING_ARC_INPUT_REPLAY_OFF, s_timing_arc_input },
+    { "flow_ui", XRC_BRK_FLOW_UI_SITE_OFF, XRC_BRK_FLOW_UI_REPLAY_OFF, s_flow_ui },
     { "unlock_l2",   XRC_BRK_UNLOCK_L2_SITE_OFF,  XRC_BRK_UNLOCK_L2_REPLAY_OFF,  s_unlock_force_true },
     { "unlock_l3",   XRC_BRK_UNLOCK_L3_SITE_OFF,  XRC_BRK_UNLOCK_L3_REPLAY_OFF,  s_unlock_force_true },
     { "cb_ready",    XRC_BRK_CB_READY_SITE_OFF,   XRC_BRK_CB_READY_REPLAY_OFF,   s_cb_ready_native },
@@ -894,6 +936,8 @@ static const xrc_static_patch_t k_static_patches[] = {
 // 站点是否真的在（= 本次构建是否注入了该功能）在启动时算一次；面板据此只显示本构建含有的项。
 typedef struct { const char *feature; const char *sites[10]; int n; } xrc_feature_sites_t;
 static const xrc_feature_sites_t k_feature_sites[] = {
+    { "judge_time_lock", { "timing_input", "timing_arc_input", "ap_note_win", "ap_arctap_win" }, 4 },
+    { "note_flow", { "flow_ui" }, 1 },
     { "unlock_own",     { "unlock_l1", "unlock_l2", "unlock_l3" }, 3 },
     { "unlock_lock",    { "lock_fv", "lock_do", "fv_gate" }, 3 },
     { "chain_guard",    { "chain_prog" }, 1 },
@@ -904,8 +948,8 @@ static const xrc_feature_sites_t k_feature_sites[] = {
     { "applog_capture", { "applog_send", "applog_blob" }, 2 },
 };
 #define XRC_FEATURE_N (sizeof(k_feature_sites) / sizeof(k_feature_sites[0]))
-static int  s_feature_hits[XRC_FEATURE_N];     // 该功能的在位站点数
-static bool s_features_ready = false;
+static _Atomic(int) s_feature_hits[XRC_FEATURE_N];
+static _Atomic(bool) s_features_ready = false;
 
 static void s_feature_scan(uint64_t base) {
     NSMutableString *on = [NSMutableString string], *off = [NSMutableString string];
@@ -937,6 +981,14 @@ bool xrc_feature_present(const char *feature) {
             return s_feature_hits[i] > 0;      // 至少一个站点在位 = 本构建含有该功能
     }
     return true;                               // 未登记的名字：不隐藏
+}
+
+bool xrc_feature_complete(const char *feature) {
+    if (!feature || !s_features_ready) return false;
+    for (size_t i = 0; i < XRC_FEATURE_N; i++)
+        if (strcmp(k_feature_sites[i].feature, feature) == 0)
+            return s_feature_hits[i] == k_feature_sites[i].n;
+    return false;
 }
 
 static void s_hex8(const uint8_t *b, char *out /* >=17 */) {

@@ -29,6 +29,7 @@
 #include "XRCStore.h"
 #include "XRCAudio.h"
 #include "XRCReplay.h"
+#include "XRCFlow.h"
 #import "XRCTimelineView.h"
 #import "XRCSwitchRow.h"
 
@@ -42,6 +43,7 @@ static NSString *const kNoteLoop =
     @"设起点 A=把当前位置记为 A；设终点 B=把当前位置记为 B（需 >A+1s）；循环开=播放到 B 自动回 A。";
 static NSString *const kNoteJudge =
     @"四档 ±ms 阈值，只改本地判定宽容度，不动谱面；数值需递增（提交时自动夹取）。\n"
+    @"锁定判定区间=变速时保持现实毫秒窗口；关闭则窗口随播放倍率变化。\n"
     @"自动演奏=所有判定强制 Pure（含漏扫路径），演示/练习用。";
 static NSString *const kNoteReplay =
     @"回跳到已游玩并判定过的谱面段落时，支持重新游玩该段，同时清空分数记录。";
@@ -78,6 +80,8 @@ static NSString *const kNoteDev =
 @property (nonatomic, strong) UILabel *timeLabel;
 @property (nonatomic, strong) UILabel *speedLabel;
 @property (nonatomic, strong) UISlider *speedSlider;
+@property (nonatomic, strong) UITextField *flowField;
+@property (nonatomic, strong) UIButton *flowApplyBtn;
 // 循环
 @property (nonatomic, strong) UIButton *fromBtn;
 @property (nonatomic, strong) UIButton *toBtn;
@@ -88,6 +92,7 @@ static NSString *const kNoteDev =
 @property (nonatomic, strong) UIButton *judgeApplyBtn;
 @property (nonatomic, strong) UILabel *judgeHdr;
 @property (nonatomic, strong) XRCSwitchRow *swAutoplay;
+@property (nonatomic, strong) XRCSwitchRow *swJudgeTimeLock;
 // 解锁
 @property (nonatomic, strong) XRCSwitchRow *swOwn;
 @property (nonatomic, strong) XRCSwitchRow *swFv;
@@ -138,6 +143,8 @@ static NSString *const kNoteDev =
 - (void)toggleSpeedAudio;
 - (void)toggleReplay;
 - (void)commitJudge;
+- (void)toggleJudgeTimeLock;
+- (void)commitFlow;
 - (void)toggleOwn;
 - (void)toggleFv;
 - (void)toggleDo;
@@ -361,7 +368,24 @@ static NSString *const kNoteDev =
     [self.swReplay addTarget:self action:@selector(toggleReplay) forControlEvents:UIControlEventTouchUpInside];
     [c1 addSubview:self.swReplay];
 
-    c1.frame = CGRectMake(x0, y, W, rowY + 2 * rowH + 17 + cardPad);
+    CGFloat flowY = rowY + 2 * rowH + 26;
+    UILabel *flowTitle = [[UILabel alloc] initWithFrame:CGRectMake(cardPad, flowY, 76, rowH)];
+    flowTitle.text = @"下落流速";
+    flowTitle.textColor = UIColor.whiteColor;
+    flowTitle.font = [UIFont systemFontOfSize:12];
+    [c1 addSubview:flowTitle];
+    self.flowField = [[UITextField alloc] initWithFrame:CGRectMake(cardPad + 80, flowY, W - cardPad * 2 - 146, rowH)];
+    self.flowField.borderStyle = UITextBorderStyleRoundedRect;
+    self.flowField.keyboardType = UIKeyboardTypeDecimalPad;
+    self.flowField.font = [UIFont monospacedDigitSystemFontOfSize:12 weight:UIFontWeightRegular];
+    self.flowField.text = [NSString stringWithFormat:@"%.1f", xrc_flow_get()];
+    self.flowField.delegate = (id<UITextFieldDelegate>)self;
+    [c1 addSubview:self.flowField];
+    self.flowApplyBtn = [self makeActionButton:@"应用"];
+    self.flowApplyBtn.frame = CGRectMake(W - cardPad - 58, flowY, 58, rowH);
+    [self.flowApplyBtn addTarget:self action:@selector(commitFlow) forControlEvents:UIControlEventTouchUpInside];
+    [c1 addSubview:self.flowApplyBtn];
+    c1.frame = CGRectMake(x0, y, W, flowY + rowH + cardPad);
     y = [self note:kNotePlayback afterCard:c1 x:x0 y:y w:W] + secGap;
 
     // ============ ② 循环 ============
@@ -439,7 +463,13 @@ static NSString *const kNoteDev =
     self.swAutoplay.frame = CGRectMake(cardPad, apY, W - cardPad * 2, rowH);
     [self.swAutoplay addTarget:self action:@selector(toggleAutoplay) forControlEvents:UIControlEventTouchUpInside];
     [c3 addSubview:self.swAutoplay];
-    c3.frame = CGRectMake(x0, y, W, apY + rowH + cardPad);
+    self.swJudgeTimeLock = [[XRCSwitchRow alloc] initWithTitle:@"锁定判定区间"];
+    self.swJudgeTimeLock.note = @"按现实毫秒判定：例如 ±25 ms 在 0.5x 和 2x 下仍是 ±25 ms。新判定预筛选桩齐全时可用。";
+    self.swJudgeTimeLock.on = xrc_judge_time_lock();
+    self.swJudgeTimeLock.frame = CGRectMake(cardPad, apY + rowH + 8, W - cardPad * 2, rowH);
+    [self.swJudgeTimeLock addTarget:self action:@selector(toggleJudgeTimeLock) forControlEvents:UIControlEventTouchUpInside];
+    [c3 addSubview:self.swJudgeTimeLock];
+    c3.frame = CGRectMake(x0, y, W, apY + 2 * rowH + 8 + cardPad);
     y += c3.frame.size.height + 2;
     self.judgeHdr = [[UILabel alloc] initWithFrame:CGRectMake(x0 + 2, y, W - 4, 12)];
     self.judgeHdr.font = [UIFont systemFontOfSize:10];
@@ -853,6 +883,30 @@ static NSString *const kNoteDev =
     [self refresh];
 }
 
+- (void)commitFlow {
+    NSScanner *scanner = [NSScanner scannerWithString:self.flowField.text ?: @""];
+    double value = 0;
+    if (![scanner scanDouble:&value] || !scanner.isAtEnd || !xrc_flow_set(value)) {
+        [WHToast showMessage:@"请输入有效流速，最小 0.1；按 0.1 步长保存" duration:1.8 finishHandler:^{}];
+        return;
+    }
+    xrc_config_t cfg; xrc_config_load(&cfg);
+    cfg.note_flow = round(value * 10.0) / 10.0;
+    xrc_config_save(&cfg);
+    self.flowField.text = [NSString stringWithFormat:@"%.1f", cfg.note_flow];
+    [self.flowField resignFirstResponder];
+    [WHToast showMessage:@"下落流速已保存；下一次开局使用新值" duration:1.4 finishHandler:^{}];
+}
+
+- (void)toggleJudgeTimeLock {
+    if (!xrc_judge_is_active() || !xrc_feature_complete("judge_time_lock")) return;
+    xrc_config_t cfg; xrc_config_load(&cfg);
+    cfg.judge_time_lock = !cfg.judge_time_lock;
+    xrc_config_save(&cfg);
+    xrc_judge_set_time_lock(cfg.judge_time_lock);
+    [self refresh];
+}
+
 // 开关：统一"读配置 → 翻转 → 保存 → 即时生效 → 刷新"路径
 #define XRC_TOGGLE_SWITCH(KEY, SETTER, ONMSG, OFFMSG)                                   \
     do {                                                                                \
@@ -1082,6 +1136,11 @@ static NSString *const kNoteDev =
 
     self.swReplay.on     = xrc_replay_enabled();
     self.swAutoplay.on   = xrc_judge_autoplay();
+    self.swJudgeTimeLock.on = xrc_judge_time_lock();
+    self.swJudgeTimeLock.enabled = xrc_judge_is_active() && xrc_feature_complete("judge_time_lock");
+    self.flowField.enabled = self.flowApplyBtn.enabled = xrc_feature_complete("note_flow");
+    if (!self.flowField.isFirstResponder && self.flowField.enabled)
+        self.flowField.text = [NSString stringWithFormat:@"%.1f", xrc_flow_get()];
     self.swOwn.on      = xrc_brk_unlock_own();
     self.swFv.on       = xrc_brk_unlock_fv();
     self.swDo.on       = xrc_brk_unlock_do();

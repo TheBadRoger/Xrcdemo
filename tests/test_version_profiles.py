@@ -21,3 +21,18 @@ class VersionProfileTests(unittest.TestCase):
     def test_unknown_version_is_rejected(self):
         with self.assertRaises(RuntimeError):
             inject.configure_profile("7.0.257")
+
+    def test_practice_hooks_have_distinct_replay_slots(self):
+        for version in ("7.0.255", "7.0.256"):
+            inject.configure_profile(version)
+            selected = {name: (site, replay, original) for name, site, replay, original in inject.BRK_HOOKS}
+            for name in ("timing_input", "timing_arc_input", "flow_ui"):
+                site, replay, original = selected[name]
+                self.assertEqual(site % 4, 0)
+                self.assertEqual(replay % 8, 0)
+                self.assertEqual(len(bytes.fromhex(original)), 4)
+            replays = [replay for _, replay, _ in selected.values() if replay]
+            self.assertEqual(len(replays), len(set(replays)))
+            enabled, _ = inject.features_selected(["--profile", "release"])
+            self.assertIn("judge_time_lock", enabled)
+            self.assertIn("note_flow", enabled)

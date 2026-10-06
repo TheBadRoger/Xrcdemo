@@ -28,6 +28,7 @@
 #include "XRCPlayer.h"
 #include "XRCGameplay.h"
 #include "XRCJudge.h"
+#include "XRCFlow.h"
 #include "XRCConfig.h"
 #include "XRCHook.h"
 #include "XRCDump.h"
@@ -262,6 +263,7 @@ static void doBootstrap(void) {
             }
             }
 #endif
+            xrc_flow_tick();
             void *p = xrc_player_get();
             if (xrc_player_detect_change(p)) {
                 xrc_logd(XRCLC_JUDGE, @"new song: player=%p", p);
@@ -274,6 +276,7 @@ static void doBootstrap(void) {
         }];
         [[NSRunLoop mainRunLoop] addTimer:xrc_tick forMode:NSRunLoopCommonModes];
         xrc_replay_start();   // 回跳重播引擎：常驻检出线程（落笔在主队列；总门由面板控制）
+        xrc_logi(XRCLC_BOOT, @"practice-timing v1 · real-time judgment lock / unrestricted note flow");
         xrc_logi(XRCLC_BOOT, @"存储：%@ ｜ cb 自由化 %s",
                  xrc_store_cb_status(), g_cfg.cb_bypass ? "on" : "off");
         xrc_logd(XRCLC_BOOT, @"%@（开关 %s）", xrc_audio_speed_status(),
@@ -352,6 +355,8 @@ static void xrc_apply_switches(void) {
     @try {
         xrc_judge_set_windows(g_cfg.judge_max_ms, g_cfg.judge_pure_ms,
                               g_cfg.judge_far_ms, g_cfg.judge_lost_ms);
+        xrc_judge_set_time_lock(g_cfg.judge_time_lock);
+        if (g_cfg.note_flow > 0) xrc_flow_set(g_cfg.note_flow);
     } @catch (NSException *e) { xrc_logw(XRCLC_BOOT, @"judge setup EX: %@", e); }
     // BRK 桩：处理器安装 + **立即注册** —— cb 校验在 didFinishLaunching 之前就有后台
     // 线程命中；注册晚于命中 = 空表分发 → 崩。doBootstrap 里的 setup 为幂等刷新

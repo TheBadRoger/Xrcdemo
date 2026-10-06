@@ -143,6 +143,12 @@ BRK_HOOKS = [
     ("arc_hide_b", 0x100AFFE80, 0, "01008052"),   # MOV W1,#0（弧 tick 里的藏）
 ]
 
+BRK_HOOKS += [
+    ("timing_input", 0x10091F01C, 0x101468170, "1f010a6b"),
+    ("timing_arc_input", 0x10091FCA8, 0x101468178, "3f01086b"),
+    ("flow_ui", 0x100178C3C, 0x101468180, "1f01156b"),
+]
+
 # ---- 还原站点：不在 BRK_HOOKS、但既有二进制可能带其桩的站点 ----
 # 还原逻辑遍历 BRK_HOOKS + 本表：本表站点再注入时若原地仍是 BRK 则还原原字节。
 # 必须单列：遗漏即**还原不掉**，而 dylib 无该站点的处理器 ⇒ 命中 BRK 时 SIGTRAP **直接闪退**。
@@ -158,6 +164,9 @@ RESTORE_SITES = [
 #   status: required=守崩必备 / stable=稳定 / redundant=由其它机制覆盖（默认不进 release）
 #           / debug=调试采集（默认不进 release）
 FEATURES = [
+    ("judge_time_lock", ["timing_input", "timing_arc_input", "ap_note_win", "ap_arctap_win"], True, "stable",
+     "锁定现实毫秒判定窗口，同步输入预筛选与音符过期窗口"),
+    ("note_flow", ["flow_ui"], True, "stable", "解除下落流速设置的 1.0–6.5 范围限制"),
     ("unlock_own",     ["unlock_l1", "unlock_l2", "unlock_l3"],                    False, "redundant",
      "拥有链三层：归属由 cb 三清单 + 服务器授予决定；本组覆盖服务器未授予而本地已有内容的场景"),
     ("unlock_lock",    ["lock_fv", "lock_do", "fv_gate"],                          True,  "stable",
@@ -883,6 +892,11 @@ def main():
         marker = b"xrc-profile:7.0.256"
         if marker not in open(dylibs[0], "rb").read():
             print("[!] libxrcdemo.dylib is not a 7.0.256 build; rebuild with XRC_GAME_VERSION=7.0.256")
+            sys.exit(3)
+
+    if any(n in ("timing_input", "timing_arc_input", "flow_ui") for n, _s, _r, _e in BRK_HOOKS):
+        if b"practice-timing v1" not in open(dylibs[0], "rb").read():
+            print("[!] new practice hooks require a rebuilt dylib with 'practice-timing v1'; refusing old artifacts")
             sys.exit(3)
 
     # 配对校验（两条）：

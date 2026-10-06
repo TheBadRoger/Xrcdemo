@@ -39,6 +39,11 @@
 #include "XRCProfile.h"
 #include "XRCRuntime.h"
 #include "xrc_abi.h"
+#include "XRCClock.h"
+#include "XRCHook.h"
+#include "XRCPracticeMath.h"
+
+static _Atomic(bool) s_time_lock = false;
 
 #if XRC_HAS_JUDGE_STUB
 extern uint64_t xrc_image_base(void);   // Tweak.x 提供
@@ -130,11 +135,8 @@ static uint64_t s_xrc_judge_handler(uint64_t ng, uint64_t note, int64_t ts, uint
     int t_lost = atomic_load(&s_th[2]);
     int t_miss = atomic_load(&s_th[3]);
 
-    int grade = -1;
-    if (delta < t_pure)      grade = 0;
-    else if (delta < t_far)  grade = 1;
-    else if (delta < t_lost) grade = 2;
-    else if (delta <= t_miss) grade = 3;   // LN/近失落账路径（非 Miss）
+    const int thresholds[4] = {t_pure, t_far, t_lost, t_miss};
+    int grade = xrc_practice_grade(delta, thresholds, xrc_clock_get_rate(), xrc_judge_time_lock());
 
     if (grade == 3) {
         // loc_10091E850：commit_ln(*(ng+0x38), note, w4) + fx[0](fx, note)
@@ -220,6 +222,17 @@ static _Atomic(bool) s_judge_active = false;
 
 bool xrc_judge_is_active(void) {
     return atomic_load(&s_judge_active);
+}
+
+void xrc_judge_set_time_lock(bool on) { atomic_store(&s_time_lock, on); }
+bool xrc_judge_time_lock(void) {
+    return atomic_load(&s_time_lock) && xrc_judge_is_active() && xrc_feature_complete("judge_time_lock");
+}
+int32_t xrc_judge_scaled_window(int native_ms) {
+    double rate = xrc_judge_time_lock() ? xrc_practice_rate(xrc_clock_get_rate()) : 1.0;
+    double scaled = (double)native_ms * rate;
+    int32_t rounded = xrc_practice_bound(0, scaled);
+    return rounded < INT32_MAX && scaled > rounded ? rounded + 1 : rounded;
 }
 
 bool xrc_judge_install(uint64_t image_base) {

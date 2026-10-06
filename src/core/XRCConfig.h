@@ -14,6 +14,8 @@ typedef struct {
     int       judge_pure_ms;
     int       judge_far_ms;
     int       judge_lost_ms;
+    BOOL      judge_time_lock;
+    double    note_flow;    // 0 = retain game setting; positive values use native 0.1 steps
     // ---- 私服接入（XRCNet）----
     BOOL      net_enabled;  // 是否改写 API 请求指向自有服务端
     NSString *net_base;     // 目标 base，如 http://192.168.1.10:8080
