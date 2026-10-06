@@ -35,7 +35,8 @@ FW_DIR = os.path.join(APP, "Frameworks")
 DYLIB_NAMES = ["libxrcdemo.dylib", "libellekit.dylib"]
 INJECT_NAME = "@rpath/libxrcdemo.dylib"
 
-LC_LOAD_DYLIB = 0x8000000C
+# mach-o/loader.h: LC_LOAD_DYLIB does not include LC_REQ_DYLD.
+LC_LOAD_DYLIB = 0x0000000C
 LC_RPATH = 0x8000001C
 
 # ---- judge stub constants (7.0.255) ----
@@ -611,7 +612,7 @@ def parse_load_commands(raw: bytes, base: int):
 def has_load_dylib(raw: bytes, base: int, name: str) -> bool:
     _, _, cmds = parse_load_commands(raw, base)
     for cmd, cmdsize, pos in cmds:
-        if (cmd & 0xFFFFFF) != 0x0C:
+        if cmd != LC_LOAD_DYLIB:
             continue
         path_off = struct.unpack_from("<I", raw, pos + 8)[0]
         path = raw[pos + path_off:pos + cmdsize].split(b"\0")[0].decode()
@@ -623,7 +624,7 @@ def has_load_dylib(raw: bytes, base: int, name: str) -> bool:
 def has_rpath(raw: bytes, base: int, path: str) -> bool:
     _, _, cmds = parse_load_commands(raw, base)
     for cmd, cmdsize, pos in cmds:
-        if (cmd & 0xFFFFFF) != 0x1C:
+        if cmd != LC_RPATH:
             continue
         path_off = struct.unpack_from("<I", raw, pos + 8)[0]
         rp = raw[pos + path_off:pos + cmdsize].split(b"\0")[0].decode()
@@ -664,7 +665,16 @@ def padding_after_lc(raw: bytes, base: int, sizeofcmds: int) -> int:
 
 def insert_load_commands_inplace(data: bytearray, base: int) -> list[str]:
     logs = []
-    ncmds, sizeofcmds, _ = parse_load_commands(data, base)
+    ncmds, sizeofcmds, commands = parse_load_commands(data, base)
+    # Repair bundles produced by the old injector without duplicating the load
+    # command or changing any segment, instruction, or command size.
+    for cmd, cmdsize, pos in commands:
+        if cmd == 0x8000000C:
+            path_off = struct.unpack_from("<I", data, pos + 8)[0]
+            path = bytes(data[pos + path_off:pos + cmdsize]).split(b"\0")[0]
+            if path == INJECT_NAME.encode("ascii"):
+                struct.pack_into("<I", data, pos, LC_LOAD_DYLIB)
+                logs.append("repaired invalid 0x8000000C -> LC_LOAD_DYLIB (0x0000000C)")
 
     to_add = []
     if not has_load_dylib(data, base, INJECT_NAME):

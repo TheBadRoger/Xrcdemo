@@ -11,3 +11,27 @@ xrc_patch_manifest.json
 ios/
 ui-mock/_*.m
 ui-mock/_*.tmp
+
+# Local build outputs and downloaded dependencies
+out/
+theos/
+ek-src/
+*.dylib
+*.ipa
+*.deb
+*.dSYM/
+
+# Signing material
+sign_certificate/
+*.p12
+*.pfx
+*.mobileprovision
+*.key
+*.pem
+Password.txt
+
+# Device logs and local diagnostics
+*.log
+errlog.txt
+.zsign_cache/
+.zsign_debug/
