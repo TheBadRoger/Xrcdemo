@@ -16,6 +16,8 @@
 
 **导航** · [功能](#功能) · [构建](#构建) · [部署](#部署) · [跨版本适配](#跨版本适配) · [故障排查](#故障排查) · [许可](#许可)
 
+部署前请阅读 [NOTICE.md](NOTICE.md)。本地游戏样本、改包成果及逆向过程资料已迁移到 `D:\Workspace\ArcaeaDecryptor\work\xrcdemo-20261006-practice`；本项目不保留源 App / IPA，下一次部署需重新准备 `ios/Payload/`。
+
 ## 功能
 
 | 功能 | 使用效果 |
@@ -167,7 +169,7 @@ python inject.py --stub --brk --profile release
 | 复制动态库 | 将两个 dylib 放入 App 的 `Frameworks/` |
 | 修改加载命令 | 加入动态库加载命令及所需搜索路径 |
 | 写入判定桩 | 安装 v2 判定跳板与运行时锚点 |
-| 写入功能补丁 | 发布组：`unlock_lock`、`chain_guard`、`cb_free`、`autoplay` |
+| 写入功能补丁 | 发布组：`judge_time_lock`、`note_flow`、`unlock_lock`、`chain_guard`、`cb_free`、`autoplay` |
 | 修改 `Info.plist` | 配置网络访问及 Documents 文件共享 |
 | 生成清单 | 根目录 `xrc_patch_manifest.json`，记录补丁状态和 dylib 哈希 |
 
