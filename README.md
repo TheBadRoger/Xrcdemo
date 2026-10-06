@@ -289,6 +289,7 @@ zsign -k certificate.p12 -p 'YOUR_PASSWORD' \
 | `Mismatched bundle IDs` | `.appex` ID 是否以主 App ID 加 `.` 为前缀，签名工具是否再次改写了 ID |
 | `contained no image slices` | 主程序 Mach-O 格式；旧注入器曾写入错误的 `0x8000000C`，正确的 `LC_LOAD_DYLIB` 为 `0x0000000C` |
 | `Failed to re-fetch bundle during preflight` | 这是外层错误；读取设备 `installd` 日志中的底层错误再判断 |
+| `DeviceNotSupportedByThinning` | 检查主 App 的 `UISupportedDevices`；若源包带有限定型号名单，先确认 `UIDeviceFamily` 支持目标设备，再移除名单并重新打包、签名。移除名单不会补回裁剪掉的资源 |
 | 安装成功但启动崩溃 | 签名、动态库依赖、架构、功能处理器及游戏版本 |
 | 面板出现但功能不可用 | 判定桩、选定功能站点及 `[probe] summary` 状态 |
 

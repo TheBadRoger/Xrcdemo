@@ -42,3 +42,7 @@
 - 实际注入通过原字节断言；发布版启用 19 个站点，无计划外 BRK。
 - `--check` 确认 v2 判定桩和动态库加载命令在位。
 - 桌面名称为 `Arc-Exercise`，Bundle ID 为 `moe.low.arc.exercise`；部署包不含通知扩展，仍需完整重新签名。
+
+## iPad 安装限制修正
+
+源包的 `UISupportedDevices` 仅列出部分 iPhone 和 iPod，导致 iPad 安装时出现 `DeviceNotSupportedByThinning`。主 App 的 `UIDeviceFamily` 已为 `[1, 2]`，因此部署时移除型号白名单，保留原有 iPad 支持声明，并重新打包。新包必须重新签名。这个修改仅消除安装阶段的型号限制，不能证明原包包含全部 iPad 资源或已通过真机验证。
