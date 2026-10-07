@@ -34,7 +34,7 @@ typedef enum {
     XRC_OP_LOOP_REWIND,   // A-B 循环回到 A（seek 平移）
 } xrc_op_t;
 
-// UI 登记（非阻塞）：返回是否受理（状态机忙时拒绝）。
+// UI 登记（非阻塞）：返回是否受理；忙时保留最后一次手动目标（主线程调用）。
 bool xrc_gameplay_request(xrc_op_t op, uint32_t param_ms);
 
 // 当前 pending 状态（UI 显示/防重入用）。
@@ -56,3 +56,9 @@ void xrc_loop_tick(void *gameplay, uint32_t pos_ms);
 
 // 活场景指针（gp.update 缓存；0 = 不在对局）。
 uint64_t xrc_gameplay_instance(void);
+
+// 跳转期间禁止音频模块再次补偿或后台回跳检测介入。
+bool xrc_gameplay_seek_active(void);
+
+// 最新已完成跳转的结果；序号 0 表示尚无结果（面板主线程读取）。
+uint64_t xrc_gameplay_seek_result(bool *success);

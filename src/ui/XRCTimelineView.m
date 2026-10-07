@@ -5,7 +5,7 @@
 @implementation XRCTimelineView {
     UITapGestureRecognizer *_tap;
     UIPanGestureRecognizer *_pan;
-    CGFloat _dragStartX;
+    BOOL _dragging;
 }
 
 - (instancetype)initWithFrame:(CGRect)frame {
@@ -18,6 +18,7 @@
         [self addGestureRecognizer:_tap];
         _pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(onPan:)];
         [self addGestureRecognizer:_pan];
+        [_tap requireGestureRecognizerToFail:_pan];
     }
     return self;
 }
@@ -36,14 +37,19 @@
 
 - (void)onPan:(UIPanGestureRecognizer *)g {
     CGPoint p = [g locationInView:self];
+    if (g.state == UIGestureRecognizerStateBegan) _dragging = YES;
     // 拖动 = 纯 seek 预览，松手执行。
     // 循环区间只由「设起点/设终点」按钮写入。
     if (g.state == UIGestureRecognizerStateChanged) {
-        self.positionMs = [self msAtX:p.x];
+        _positionMs = [self msAtX:p.x];
+        [self setNeedsDisplay];
     }
-    if (g.state == UIGestureRecognizerStateEnded || g.state == UIGestureRecognizerStateCancelled) {
+    if (g.state == UIGestureRecognizerStateEnded) {
+        _dragging = NO;
         if (self.onScrub) self.onScrub([self msAtX:p.x], YES);
     }
+    if (g.state == UIGestureRecognizerStateCancelled || g.state == UIGestureRecognizerStateFailed)
+        _dragging = NO;
 }
 
 - (void)drawRect:(CGRect)rect {
@@ -79,6 +85,7 @@
 }
 
 - (void)setPositionMs:(uint32_t)positionMs {
+    if (_dragging) return;
     _positionMs = positionMs;
     [self setNeedsDisplay];
 }

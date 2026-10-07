@@ -132,6 +132,17 @@ void xrc_player_try_capture_length(void *player) {
 }
 
 // 位置轮询兜底：channel 0 的 get_position（getpos hook 不频繁触发时的补充）
+bool xrc_player_read_position(void *player, uint32_t *out_ms) {
+    if (!player || !out_ms || !s_ch_get_position) return false;
+    void *channels = *(void **)((char *)player + XRC_PLAYER_CHANNELS_OFF);
+    void *channel = channels ? *(void **)((char *)channels + XRC_CHANNEL_ENTRY_PTR_OFF) : NULL;
+    uint32_t pos = 0;
+    if (!channel || s_ch_get_position(channel, &pos, 1) != 0 || pos > INT_MAX) return false;
+    *out_ms = pos;
+    atomic_store(&s_last_pos_ms, pos);
+    return true;
+}
+
 void xrc_player_poll_position(void *player) {
     if (!player || !s_ch_get_position) return;
     void *channels = *(void **)((char *)player + XRC_PLAYER_CHANNELS_OFF);

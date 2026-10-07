@@ -8,6 +8,7 @@
 #include "XRCProfile.h"
 #include "XRCClock.h"
 #include "XRCPlayer.h"
+#include "XRCGameplay.h"
 
 #include <stdatomic.h>
 #include <stdint.h>
@@ -182,7 +183,7 @@ void xrc_audio_speed_apply(double rate) {
         xrc_logd(XRCLC_BOOT, @"[audio] 移调 DSP 挂载：group=%p rc=%d rate=%.3f ratio=%.3f rc_set=%d lat=%.1fms rc_pitch=%d",
                  group, rc, rate, pr, rc_set, s_dsp_lat_ms, rc_pitch);
         s_dsp_group = group;
-        s_compensate(s_channel0(), rate);                // ③ 延迟补偿
+        if (!xrc_gameplay_seek_active()) s_compensate(s_channel0(), rate);                // ③ 延迟补偿
     } else {
         xrc_logd(XRCLC_BOOT, @"[audio] 变速 rate=%.3f ratio=%.3f rc_set=%d rc_pitch=%d",
                  rate, pr, rc_set, rc_pitch);
@@ -201,7 +202,7 @@ void xrc_audio_speed_tick(void) {
         void *ch = s_channel0();
         uint32_t pos = 0;
         if (ch && p_ch_getpos && p_ch_getpos(ch, &pos, 1) == 0) {
-            if (pos + 500 < s_last_pos_ms) s_compensate(ch, rate);
+            if (!xrc_gameplay_seek_active() && pos + 500 < s_last_pos_ms) s_compensate(ch, rate);
             s_last_pos_ms = pos;
         }
     }

@@ -36,3 +36,6 @@ bool xrc_player_seek_ms(void *self, uint32_t ms);
 // 音频暂停/恢复（vtable 槽 0x30 = setPaused(paused, index=0→默认 BGM 通道)）。
 // 外部参考实现同款链路（设计纪要 §1.3/§2）。返回是否成功（FMOD_RESULT==0）。
 bool xrc_player_pause(bool paused);
+
+// 实时读取，不使用进度缓存；失败时不修改输出。
+bool xrc_player_read_position(void *player, uint32_t *out_ms);

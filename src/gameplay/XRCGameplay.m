@@ -18,6 +18,8 @@
 #include "XRCClock.h"
 #include "XRCAudio.h"   // 音乐变速：每帧去重 tick（rate/组变了才动手）
 #include "XRCPlayer.h"
+#include "XRCReplay.h"
+#include "XRCSeekMath.h"
 #include "XRCProfile.h"
 
 #if __has_include(<ptrauth.h>)
@@ -41,23 +43,20 @@ static double   s_retime_acc    = 0.0;  // (1−rate)·delta 的小数余量
 static _Atomic(uint32_t) s_pending_op    = XRC_OP_NONE;
 static _Atomic(uint32_t) s_pending_ms    = 0;
 static _Atomic(uint64_t) s_pending_scene = 0;   // 登记请求时的 scene 指针
-static _Atomic(uint64_t) s_last_exec_us  = 0;   // 冷却起点（真实时间 us）
-#define XRC_OP_COOLDOWN_US  (1500 * 1000ULL)    // seek/回位冷却 1.5s
 #define XRC_OP_MAX_IDLE_US  (4000 * 1000ULL)    // 请求超过 4s 未执行 → 丢弃
 
+static uint64_t s_pending_created_us;
+
 bool xrc_gameplay_request(xrc_op_t op, uint32_t param_ms) {
+    if (![NSThread isMainThread] || op == XRC_OP_NONE || op > XRC_OP_LOOP_REWIND) return false;
     void *scene = atomic_load(&xrc_gp_instance);
-    if (!scene) {
-        xrc_logd(XRCLC_JUDGE, @"request rejected: no live scene");
-        return false;
-    }
-    uint32_t cur = atomic_load(&s_pending_op);
-    if (cur != XRC_OP_NONE) {
-        xrc_logd(XRCLC_JUDGE, @"request rejected: pending op=%u", cur);
-        return false;
-    }
+    if (!scene) return false;
+    uint32_t pending = atomic_load(&s_pending_op);
+    // Automatic loop requests must not replace a user's most recent target.
+    if (pending != XRC_OP_NONE && op == XRC_OP_LOOP_REWIND) return false;
     atomic_store(&s_pending_scene, (uint64_t)scene);
     atomic_store(&s_pending_ms, param_ms);
+    s_pending_created_us = xrc_real_now_us();
     atomic_store(&s_pending_op, op);
     return true;
 }
@@ -96,6 +95,7 @@ static void s_retry_watch_tick(void) {
     // 监视常开（回位点由"循环是否开启"在触发时刻决定）。
     int32_t pos = (int32_t)xrc_player_position_ms();
     if (pos < 0) return;
+    if (xrc_gameplay_seek_active()) return;
     if (!atomic_load(&s_cap_valid)) {
         s_prev_audio_ms = pos;
         atomic_store(&s_cap_valid, true);
@@ -116,7 +116,7 @@ static void s_retry_watch_tick(void) {
         uint32_t a = 0, b = 0;
         xrc_loop_get_range(&a, &b);
         if (xrc_loop_get_enabled() && b > a + 1000) {
-            if (xrc_gameplay_request(XRC_OP_SEEK, a)) {
+            if (xrc_gameplay_request(XRC_OP_LOOP_REWIND, a)) {
                 xrc_logd(XRCLC_JUDGE, @"retry detected (audio jump %d) -> seek loop A %u", jump, a);
             }
         } else {
@@ -125,223 +125,145 @@ static void s_retry_watch_tick(void) {
     }
 }
 
-// ---- 冻结式 seek（外部参考实现统一时钟模型落地）----
-// 设计全链（含反编译证据）：内部设计纪要（离线记录）
-// 事务：暂停音频 → 音频 seek → 钟 base 平移 → 重置链在冻结窗内跑完（世界冻住：无声 + 钟被
-// 每帧钉住，无竞态、无“卡顿”感知）→ xrc_freeze_end 收口 → 以实测音频位置再写
-// 一次 → 收敛窗 → 恢复音频。冻结期 stall 监视豁免。
-#define XRC_FRZ_OFF     0
-#define XRC_FRZ_FROZEN  1
-#define XRC_FRZ_RESYNC  2
-#define XRC_FRZ_MAX_US   (1500 * 1000ULL)   // 1.5s 强制解冻兜底（**按时间**：帧数兜底不可靠——
-                                            // 引擎追赶循环一次可调数百遍 gp.update，"90 帧"194ms 就烧完）
-#define XRC_RESYNC_US    (60 * 1000ULL)     // 收敛窗 ≈60ms（外部参考实现=2 帧@60fps≈33ms，多留余量）
-static _Atomic(int) s_frz_state  = 0;
-static _Atomic(int) s_frz_target = 0;
-static _Atomic(uint64_t) s_frz_deadline_us = 0;
+// A seek owns one scene/player/clock until acknowledgement and replay completion.
+// The audio channel keeps its existing paused state; never unpause a user's pause menu.
+#define XRC_FRZ_OFF 0
+#define XRC_FRZ_FROZEN 1
+#define XRC_FRZ_RESYNC 2
+#define XRC_FRZ_REBUILD 3
+#define XRC_FRZ_MAX_US 1500000ULL
+#define XRC_RESYNC_US 60000ULL
+static _Atomic(int) s_frz_state;
+static void *s_seek_scene, *s_seek_ng, *s_seek_player;
+static uint32_t s_seek_audio_target;
+static int32_t s_seek_offset, s_seek_previous;
+static uint64_t s_seek_started_us, s_seek_deadline_us, s_seek_sequence;
+static bool s_seek_force_replay;
+static uint64_t s_seek_result_sequence;
+static bool s_seek_result_success;
 
-static inline int32_t xrc_sat_add32(int32_t a, int32_t b) {
-    int64_t v = (int64_t)a + b;
-    if (v > 2147483647LL) return 2147483647;
-    if (v < (-2147483647LL - 1)) return (-2147483647 - 1);
-    return (int32_t)v;
+uint64_t xrc_gameplay_seek_result(bool *success) {
+    if (success) *success = s_seek_result_success;
+    return s_seek_result_sequence;
 }
 
-// **定位写法必须用 base 平移**（唯一经充分验证的写）。时钟字段是引擎**自己连续时钟域**
-// 的时间戳（真机 base≈310,164,256ms，与系统 uptime 不同域——含睡眠计时）；跨域直接写
-// （+16/+32/+52）会触发引擎重归一化，把 (base, +32) 拆散 ⇒ 读法爆炸 ⇒ 超过曲长 ⇒
-// 引擎立即收歌。**+3000 常数背后是整个域约定，不可只抄数字。**
-// base 平移天然域无关：只加「同域两个量的差」，不引入任何跨域常数。
+bool xrc_gameplay_seek_active(void) { return atomic_load(&s_frz_state) != XRC_FRZ_OFF; }
+
 static void xrc_clock_shift_to(void *note_group, int32_t target) {
     if (!note_group) return;
     void *clk = *(void **)((char *)note_group + XRC_CLOCK_IN_NOTEGROUP_OFF);
     if (!clk) return;
     int32_t cur = xrc_chart_clock_ms(note_group);
-    int32_t *base_off = (int32_t *)((char *)clk + XRC_CLK_BASE_OFF);
-    *base_off = xrc_sat_add32(*base_off, xrc_sat_add32(cur, -target));
+    int32_t *base = (int32_t *)((char *)clk + XRC_CLK_BASE_OFF);
+    int64_t value = (int64_t)*base + (int64_t)cur - target;
+    *base = value > INT_MAX ? INT_MAX : value < INT_MIN ? INT_MIN : (int32_t)value;
 }
 
-// 冻结窗收口（重建链末尾调用；时间兜底在 s_frz_tick）。
-// 顺序照搬 外部参考实现 finish_scrub：先以当前（暂停中的）落位平移一次 → 恢复音频 → 进收敛窗。
-// 落位守卫：暂停期间游戏不调 getpos，位置缓存可能还是旧值（如 61952 vs target 44992）——
-// 把这笔 stale 平移进钟会弹回高位 ⇒ 循环 tick 二度触发 ⇒ **AB 循环多跳一次**。
-// 超窗就不平移，交给收敛窗（音频恢复后缓存随即刷新）落位。
-void xrc_freeze_end(void) {
-    if (atomic_load(&s_frz_state) != XRC_FRZ_FROZEN) return;   // 幂等
-    void *scene = atomic_load(&xrc_gp_instance);
-    void *ng = scene ? *(void **)((char *)scene + XRC_GP_NOTEGROUP_OFF) : NULL;
-    int32_t tgt = atomic_load(&s_frz_target);
-    if (ng) {
-        int32_t pos = (int32_t)xrc_player_position_ms();
-        if (pos < 0) pos = 0;
-        int32_t d = pos - tgt;
-        if (d < 0) d = -d;
-        if (d <= 5000) {
-            xrc_clock_shift_to(ng, pos);
-        } else {
-            xrc_logd(XRCLC_JUDGE, @"冻结窗收口：pos=%d 未落位（target=%d）——本次不平移，交给收敛窗", pos, tgt);
-        }
-    }
-    xrc_player_pause(false);
+static bool s_seek_context_valid(void *ng) {
+    return atomic_load(&xrc_gp_instance) == s_seek_scene && ng == s_seek_ng &&
+           xrc_player_get() == s_seek_player;
+}
+
+static void s_seek_finish(bool success) {
+    if (!xrc_gameplay_seek_active()) return;
+    s_seek_result_sequence = s_seek_sequence;
+    s_seek_result_success = success;
     xrc_clock_freeze_dec();
-    atomic_store(&s_frz_deadline_us, xrc_real_now_us() + XRC_RESYNC_US);
+    atomic_store(&s_frz_state, XRC_FRZ_OFF);
+    s_gp_last_real_us = 0;
+    s_retime_rem_us = 0;
+    s_retime_acc = 0;
+    s_prev_audio_ms = (int32_t)xrc_player_position_ms();
+    atomic_store(&s_cap_valid, true);
+    atomic_store(&s_own_seek_us, xrc_real_now_us());
+    xrc_logi(XRCLC_JUDGE, @"[seek] #%llu %s target=%u offset=%d", s_seek_sequence,
+             success ? "complete" : "failed/cancelled", s_seek_audio_target, s_seek_offset);
+}
+
+void xrc_freeze_end(void) {
+    if (atomic_load(&s_frz_state) != XRC_FRZ_REBUILD) return;
+    // Replay completes synchronously on the game thread, before another seek can start.
+    s_seek_deadline_us = xrc_real_now_us() + XRC_RESYNC_US;
     atomic_store(&s_frz_state, XRC_FRZ_RESYNC);
-    xrc_logd(XRCLC_JUDGE, @"冻结窗收口：恢复音频，进入收敛窗");
 }
 
-// 每帧（gp.update，主线程）：冻结窗钉钟 / 收敛窗按实测音频位置拉回。
-static void s_frz_tick(void *note_group) {
-    int st = atomic_load(&s_frz_state);
-    if (st == XRC_FRZ_OFF) return;
-    if (!note_group) {
-        xrc_player_pause(false);
-        xrc_clock_freeze_dec();
-        atomic_store(&s_frz_state, XRC_FRZ_OFF);
-        return;
-    }
-    uint64_t now_us = xrc_real_now_us();
-    if (st == XRC_FRZ_FROZEN) {
-        xrc_clock_shift_to(note_group, atomic_load(&s_frz_target));   // 钉住
-        if (now_us > atomic_load(&s_frz_deadline_us)) {
-            xrc_logd(XRCLC_JUDGE, @"冻结窗：**兜底解冻**（超 %.1fs 未见重置收口）",
-                     (double)XRC_FRZ_MAX_US / 1e6);
-            xrc_freeze_end();
+static void s_frz_tick(void *ng) {
+    int state = atomic_load(&s_frz_state);
+    if (state == XRC_FRZ_OFF) return;
+    if (!s_seek_context_valid(ng)) { s_seek_finish(false); return; }
+    uint64_t now = xrc_real_now_us();
+    uint32_t audio = 0;
+    bool readable = xrc_player_read_position(s_seek_player, &audio);
+    if (state == XRC_FRZ_FROZEN) {
+        if (readable && xrc_seek_landed(audio, s_seek_audio_target,
+                                        now - s_seek_started_us,
+                                        xrc_audio_speed_enabled() ? xrc_clock_get_rate() : 1.0)) {
+            int32_t chart = xrc_seek_chart_target(audio, s_seek_offset);
+            xrc_clock_shift_to(ng, chart);
+            atomic_store(&s_frz_state, XRC_FRZ_REBUILD);
+            xrc_logi(XRCLC_JUDGE, @"[seek] #%llu landed audio=%u chart=%d offset=%d",
+                     s_seek_sequence, audio, chart, s_seek_offset);
+            if (chart < s_seek_previous)
+                xrc_replay_seek((uint64_t)s_seek_scene, chart > 0 ? (uint32_t)chart : 0,
+                                (uint32_t)s_seek_previous, s_seek_force_replay);
+            xrc_freeze_end(); // Also closes no-replay/no-note paths.
+        } else if (now >= s_seek_deadline_us) {
+            // Never commit a failed target. Restore chart/audio relationship if readable.
+            if (readable) xrc_clock_shift_to(ng, xrc_seek_chart_target(audio, s_seek_offset));
+            s_seek_finish(false);
+        } else {
+            xrc_clock_shift_to(ng, s_seek_previous);
         }
-    } else if (st == XRC_FRZ_RESYNC) {
-        int32_t pos = (int32_t)xrc_player_position_ms();
-        if (pos < 0) pos = 0;
-        // 未落位守卫：音频 seek 失败/未生效时 pos 仍是旧位置 —— 平移下去会把钟拉回旧处，
-        // 反而制造一次假回跳。仅当 pos 已接近本次目标（±5s）才跟随。
-        int32_t tgt = atomic_load(&s_frz_target);
-        int32_t dpos = pos - tgt;
-        if (dpos < 0) dpos = -dpos;
-        if (dpos <= 5000) xrc_clock_shift_to(note_group, pos);
-        // 软截止（60ms）后**落位即收**（≤300ms 差）；未落位最多再等 600ms 兜底。
-        uint64_t ddl = atomic_load(&s_frz_deadline_us);
-        if (now_us > ddl && (dpos <= 300 || now_us > ddl + 600000ULL)) {
-            s_prev_audio_ms = (int32_t)xrc_player_position_ms();
-            atomic_store(&s_cap_valid, true);
-            atomic_store(&s_frz_state, XRC_FRZ_OFF);
-            xrc_logd(XRCLC_JUDGE, @"收敛窗结束：pos=%d（target=%d，%s）", pos, tgt,
-                     dpos <= 300 ? "已落位" : "超时未落位");
-        }
+    } else if (state == XRC_FRZ_RESYNC) {
+        if (readable) xrc_clock_shift_to(ng, xrc_seek_chart_target(audio, s_seek_offset));
+        if (now >= s_seek_deadline_us) s_seek_finish(readable);
     }
 }
 
-// 在游戏循环内执行 pending（self = 当前活场景）。
 static void s_exec_pending(void *self) {
+    if (xrc_gameplay_seek_active()) return;
     uint32_t op = atomic_load(&s_pending_op);
     if (op == XRC_OP_NONE) return;
-
     uint64_t now = xrc_real_now_us();
-
-    // 场景变更 → 丢弃陈旧请求（旧场景的 seek 在新场景无意义）
-    uint64_t req_scene = atomic_load(&s_pending_scene);
-    if (req_scene != (uint64_t)self) {
+    if (atomic_load(&s_pending_scene) != (uint64_t)self ||
+        now - s_pending_created_us > XRC_OP_MAX_IDLE_US) {
         atomic_store(&s_pending_op, XRC_OP_NONE);
-        xrc_logd(XRCLC_JUDGE, @"pending op=%u dropped (scene changed %llx -> %p)", op, req_scene, self);
+        s_seek_result_sequence = ++s_seek_sequence;
+        s_seek_result_success = false;
+        xrc_logi(XRCLC_JUDGE, @"[seek] #%llu pending cancelled: expired or scene changed", s_seek_sequence);
         return;
     }
-
-    uint64_t last = atomic_load(&s_last_exec_us);
-    if (last && now - last < XRC_OP_COOLDOWN_US) return;  // 冷却中
-
-    // 过期丢弃
-    static uint64_t s_req_time = 0;
-    if (s_req_time == 0) s_req_time = now;
-    if (now - s_req_time > XRC_OP_MAX_IDLE_US) {
-        atomic_store(&s_pending_op, XRC_OP_NONE);
-        s_req_time = 0;
-        return;
-    }
-
-    uint32_t ms = atomic_load(&s_pending_ms);
-
-    // 执行前最终校验（崩溃 guard）
-    void *note_group = s_valid_note_group(self);
-    if (!note_group) {
-        xrc_logd(XRCLC_JUDGE, @"pending op=%u aborted: note_group/clock null (scene=%p)", op, self);
-        atomic_store(&s_pending_op, XRC_OP_NONE);
-        return;
-    }
-
-    atomic_store(&s_pending_op, XRC_OP_NONE);   // 先清（防执行内重入）
-    atomic_store(&s_last_exec_us, now);
-    s_req_time = 0;
-
-    if (op == XRC_OP_SEEK || op == XRC_OP_SEEK_REPLAY || op == XRC_OP_LOOP_REWIND) {
-        int32_t cur_ms = xrc_chart_clock_ms(note_group);
-
-        /* 前导期/加载中的 seek **整笔丢弃**：cur=-3000（新场景加载中）时执行 seek 会
-           半生效 + 场景随即重建 ⇒ 卡死监视误判、1.5s 一次强拉、垃圾回落。前导期
-           "找位置"本身无意义（歌还没开始）⇒ 丢弃是正确语义。 */
-        if (cur_ms < 0) {
-            xrc_logd(XRCLC_JUDGE, @"seek 丢弃：前导/加载中（cur=%d ms=%u）", cur_ms, ms);
-            return;
-        }
-
-        // ① 去抖（外部参考实现 PRAC_7seek_to 的 16ms 窗）：同目标重复请求合并，防连击风暴。
-        {
-            static int32_t  s_dbd_ms = 0;
-            static uint64_t s_dbd_us = 0;
-            uint64_t nowu = xrc_real_now_us();
-            int32_t d = (int32_t)ms - s_dbd_ms;
-            if (d < 0) d = -d;
-            if (op == XRC_OP_SEEK && d < 16 && nowu - s_dbd_us < 500000ULL) {
-                xrc_logd(XRCLC_JUDGE, @"seek debounced: ms=%u（与上次目标同区，16ms 窗）", ms);
-                return;
-            }
-            s_dbd_ms = (int32_t)ms;
-            s_dbd_us = nowu;
-        }
-        // ② 曲长钳制（外部参考实现同款时长守卫）
-        {
-            uint32_t dur = xrc_player_song_length_ms();
-            if (dur && ms > dur) ms = dur;
-        }
-        // ③ 方向判定：回退幅度超过快路径检测阈（300ms）⇒ 预期触发回跳重置 ⇒ 全程冻结。
-        int frz = ((cur_ms - (int32_t)ms) > 300);
-
-        // 音频 seek（player 可能已换歌，重新取）
-        void *player = xrc_player_get();
-        if (!player) frz = 0;    // 没有播放器就不进冻结窗（否则 freeze_inc/dec 配不平）
-        if (player) {
-            int32_t pos_before = (int32_t)xrc_player_position_ms();
-            if (frz) {
-                xrc_clock_freeze_inc();          // 停 retime（它写 base）
-                xrc_player_pause(true);          // 音频暂停（外部参考实现拖动暂停的最小化版）
-            }
-            xrc_player_seek_ms(player, ms);
-            /* 给 watcher 记一笔「这一跳是我们自己干的」（音频下一帧才落位，
-               落位时 watcher 必然看到大回落 —— 见 s_own_seek_us 注释）。 */
-            atomic_store(&s_own_seek_us, xrc_real_now_us());
-            int32_t pos_after = (int32_t)xrc_player_position_ms();
-            xrc_logd(XRCLC_JUDGE, @"audio seek: target=%u, pos %d -> %d（%s）", ms, pos_before, pos_after,
-                     frz ? "回退→冻结" : "前进→导航");
-        } else {
-            xrc_logd(XRCLC_JUDGE, @"audio seek SKIPPED: player null (target=%u)", ms);
-        }
-        // 定位用 **base 平移**（唯一验证过的写；理由见 xrc_clock_shift_to 注释）。
-        // 前导期已在上面闸门整笔丢弃 ⇒ 这里 cur≥0。
-        xrc_clock_shift_to(note_group, (int32_t)ms);
-        s_gp_last_real_us = 0;
-
-        if (frz) {
-            atomic_store(&s_frz_target, (int32_t)ms);
-            atomic_store(&s_frz_deadline_us, xrc_real_now_us() + XRC_FRZ_MAX_US);
-            atomic_store(&s_frz_state, XRC_FRZ_FROZEN);
-            xrc_logd(XRCLC_JUDGE, @"seek executed: ms=%u (cur was %d)｜冻结窗开（等重置链收口/1.5s 兜底）",
-                     ms, cur_ms);
-        } else {
-            // 前进/近距：纯导航 —— 无冻结无收敛窗（绝对写已就位；音频将精确落在 target）。
-            xrc_logd(XRCLC_JUDGE, @"seek executed: ms=%u (cur was %d)｜导航", ms, cur_ms);
-        }
-    }
-
-    if (op == XRC_OP_SEEK_REPLAY || op == XRC_OP_LOOP_REWIND) {
-        // 音频基准不在这里对齐（seek 后立即读是旧值）；冻结窗/收敛窗收口时已对齐。
-        xrc_logd(XRCLC_JUDGE, @"replay executed via seek (op=%u)", op);
-    }
+    void *ng = s_valid_note_group(self);
+    void *player = xrc_player_get();
+    uint32_t audio = 0;
+    if (!ng || !player || !xrc_player_read_position(player, &audio)) return;
+    int32_t chart = xrc_chart_clock_ms(ng);
+    if (chart < 0) return; // Retain a request briefly while the same scene loads.
+    uint32_t target = atomic_load(&s_pending_ms);
+    uint32_t length = xrc_player_song_length_ms();
+    if (length && target >= length) target = length - 1;
+    if (target > INT_MAX) target = INT_MAX;
+    int64_t offset = (int64_t)chart - audio;
+    atomic_store(&s_pending_op, XRC_OP_NONE);
+    if (offset < INT_MIN || offset > INT_MAX) return;
+    s_seek_scene = self; s_seek_ng = ng; s_seek_player = player;
+    s_seek_audio_target = target; s_seek_offset = (int32_t)offset;
+    s_seek_previous = chart; s_seek_force_replay = op != XRC_OP_SEEK;
+    s_seek_started_us = now; s_seek_deadline_us = now + XRC_FRZ_MAX_US;
+    ++s_seek_sequence;
+    xrc_clock_freeze_inc();
+    atomic_store(&s_frz_state, XRC_FRZ_FROZEN);
+    // No chart write until the real channel acknowledges the new position.
+    if (!xrc_player_seek_ms(player, target)) { s_seek_finish(false); return; }
+    atomic_store(&s_own_seek_us, now);
+    uint64_t sequence = s_seek_sequence;
+    // GameScene.update may stop entirely on exit or pause. Do not leak our freeze.
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)((XRC_FRZ_MAX_US + XRC_RESYNC_US) * 1000ULL)),
+                   dispatch_get_main_queue(), ^{
+        if (xrc_gameplay_seek_active() && s_seek_sequence == sequence) s_seek_finish(false);
+    });
+    xrc_logi(XRCLC_JUDGE, @"[seek] #%llu requested=%u previous=%d offset=%d op=%u",
+             s_seek_sequence, target, chart, s_seek_offset, op);
 }
 
 // ---- vtable swizzle（PAC 感知）----
@@ -471,22 +393,26 @@ static void s_rate_probe_tick(void *note_group) {
 }
 
 void xrc_gameplay_update(void *self, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5) {
+    if (!self) {
+        atomic_store(&xrc_gp_instance, NULL);
+        s_frz_tick(NULL);
+    }
     if (self) {
         atomic_store(&xrc_gp_instance, self);
         void *note_group = *(void **)((char *)self + XRC_GP_NOTEGROUP_OFF);
+        s_frz_tick(note_group); // Cancel even when a new scene has no clock yet.
         if (note_group) {
             s_gp_retime_logic_clock(note_group);
             s_rate_probe_tick(note_group);      // 音画倍率自测（1 Hz，只读）
             int32_t pos = xrc_chart_clock_ms(note_group);
             // 冻结/收敛窗内钟不是真实播放时间（钉住/落位中）——循环 tick 抑制，
             // 防事务中间态二次触发回跳（收口缺守卫会把钟弹回旧位 → 循环二跳）。
-            if (pos > 0 && !atomic_load(&s_frz_state)) xrc_loop_tick(self, (uint32_t)pos);
+            if (pos > 0 && !atomic_load(&s_frz_state)) xrc_loop_tick(self, xrc_player_position_ms());
         }
         s_exec_pending(self);   // deferred 操作（seek/循环回位）在活场景循环内执行
 
         // retry 监视（音频回跳）；循环卡死恢复。
         if (note_group) {
-            s_frz_tick(note_group);   // 冻结窗钉钟 / 收敛窗按实测音频位置拉回
             s_retry_watch_tick();
             // 循环卡死恢复：pos 停滞超 1.5s 且位于 [A,B) 内 → 强制回 A
             int32_t pos = xrc_chart_clock_ms(note_group);

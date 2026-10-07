@@ -905,7 +905,7 @@ static void rpf_revive_main(void *ctx) {
     rpf_revive_job_t *j = (rpf_revive_job_t *)ctx;
     if (!j) return;
     uint64_t ng = 0;
-    if (j->scene) rd(j->scene + RPF_NOTEGRP, &ng, 8);
+    if (j->scene == xrc_gameplay_instance()) rd(j->scene + RPF_NOTEGRP, &ng, 8);
     if (s_ishp(ng)) {
         rpf_reg_note_t pfill = (rpf_reg_note_t)(g_xrc.image_base + XRC_OFF_REPLAY_REGISTER_NOTE);
         uint64_t mb = 0, me = 0;
@@ -945,7 +945,8 @@ static void rpf_revive_dispatch(uint64_t scene, int n) {
     memcpy(j->notes, s_reg_pend, sizeof(uint64_t) * (size_t)n);
     j->scene = scene;
     j->n = n;
-    dispatch_async_f(dispatch_get_main_queue(), j, rpf_revive_main);
+    if ([NSThread isMainThread]) rpf_revive_main(j);
+    else dispatch_async_f(dispatch_get_main_queue(), j, rpf_revive_main);
 }
 
 typedef void (*xrc_rebuild_t)(void *mgr, void *vec, void *ctx);
@@ -975,7 +976,7 @@ static void rpf_rebuild_main(void *ctx) {
     rpf_rebuild_job_t *j = (rpf_rebuild_job_t *)ctx;
     if (!j) return;
     uint64_t mgr = 0;
-    if (j->scene) rd(j->scene + RPF_RENDERMGR, &mgr, 8);
+    if (j->scene == xrc_gameplay_instance()) rd(j->scene + RPF_RENDERMGR, &mgr, 8);
     if (s_ishp(mgr) && j->n > 0) {
         static uint64_t s_rb_buf[RPF_PEND_MAX];
         int n = j->n > RPF_PEND_MAX ? RPF_PEND_MAX : j->n;
@@ -1029,7 +1030,8 @@ static void rpf_rebuild_dispatch(uint64_t scene, int n) {
     j->scene = scene;
     j->n = n;
     /* 与 rpf_revive_dispatch 同队列：主队列 FIFO ⇒ 登记先跑、重建后跑 */
-    dispatch_async_f(dispatch_get_main_queue(), j, rpf_rebuild_main);
+    if ([NSThread isMainThread]) rpf_rebuild_main(j);
+    else dispatch_async_f(dispatch_get_main_queue(), j, rpf_rebuild_main);
 }
 
 // ---- 清洗的取数来源 = 现场扫引擎的活结构 ----
@@ -1474,7 +1476,7 @@ static void rpf_cmap_stage(uint64_t ng, const char *stage) {
 // ⇒ 快路径**只检出**（三次只读），检到后把重置派发到主队列执行。主队列 FIFO 保证
 //   「重置 → 复活 → 重建」的顺序（后两者本来就在 rpf_reset 内部派发）。
 typedef struct {
-    uint64_t ng;
+    uint64_t scene, ng;
     uint32_t T, P;
 } rpf_reset_job_t;
 
@@ -1496,6 +1498,12 @@ static void rpf_freeze_end(void) {
 static void rpf_reset_main(void *ctx) {
     rpf_reset_job_t *j = (rpf_reset_job_t *)ctx;
     if (!j) return;
+    uint64_t ng = 0;
+    if (j->scene != xrc_gameplay_instance() ||
+        !rd(j->scene + RPF_NOTEGRP, &ng, 8) || ng != j->ng) {
+        free(j);
+        return;
+    }
     rpf_ap_latch_reset();          /* 先清闩，再走清洗/复活/重建 */
     rpf_reset(j->ng, j->T, j->P);
     /* 冻结窗收口。常规路径由**重建任务末尾**收口（它是链上最后一棒）；
@@ -1512,8 +1520,22 @@ static void rpf_reset_main(void *ctx) {
 static void rpf_reset_dispatch(uint64_t ng, uint32_t T, uint32_t P) {
     rpf_reset_job_t *j = (rpf_reset_job_t *)calloc(1, sizeof(*j));
     if (!j) return;
+    j->scene = xrc_gameplay_instance();
     j->ng = ng; j->T = T; j->P = P;
-    dispatch_async_f(dispatch_get_main_queue(), j, rpf_reset_main);
+    if ([NSThread isMainThread]) rpf_reset_main(j);
+    else dispatch_async_f(dispatch_get_main_queue(), j, rpf_reset_main);
+}
+
+void xrc_replay_seek(uint64_t scene, uint32_t target, uint32_t previous, bool force) {
+    if (![NSThread isMainThread] || scene != xrc_gameplay_instance() ||
+        (!s_arm_on && !force) || target >= previous) return;
+    uint64_t ng = 0;
+    if (!rd(scene + RPF_NOTEGRP, &ng, 8) || !s_ishp(ng)) return;
+    // Consume this rewind explicitly; the watcher must not issue a duplicate reset.
+    s_last_scene = scene;
+    s_last_ng = ng;
+    s_seek_wm = target;
+    rpf_reset_dispatch(ng, target, previous);
 }
 
 // ---------------------------------------------------------------- 弧分段「不藏」开关
@@ -1653,13 +1675,15 @@ static void rpf_fast_tick(void) {
 }
 
 // ---------------------------------------------------------------- 常驻线程与对外接口
-// 线程只做"检出"：每 50ms 一次 rpf_fast_tick（三次只读）；检出回跳后把重置派发到主队列
-// 执行（重置→复活→重建，主队列 FIFO）。无寿命上限，随进程退出。
+// 线程只做定时唤醒；读场景、检测及重置全部在主队列串行执行。
+// 显式跳转期间暂停兜底检测，避免同一次回退被重复重建。
 static void *rpf_thread(void *arg) {
     (void)arg;
     for (;;) {
         usleep(RPF_TICK_MS * 1000);
-        rpf_fast_tick();
+        dispatch_sync(dispatch_get_main_queue(), ^{
+            if (!xrc_gameplay_seek_active()) rpf_fast_tick();
+        });
     }
     return NULL;   /* 不可达 */
 }

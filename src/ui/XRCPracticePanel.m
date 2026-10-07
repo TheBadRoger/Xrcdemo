@@ -308,7 +308,8 @@ static NSString *const kNoteDev =
     UIView *c1 = [self cardAt:x0 y:y w:W];
     self.timeline = [[XRCTimelineView alloc] initWithFrame:CGRectMake(cardPad, cardPad, W - cardPad * 2, 34)];
     self.timeline.onScrub = ^(uint32_t ms, BOOL finished) {
-        if (finished) xrc_gameplay_request(XRC_OP_SEEK, ms);
+        if (finished && !xrc_gameplay_request(XRC_OP_SEEK, ms))
+            [WHToast showMessage:@"当前场景不能跳转，请进入谱面后重试" duration:1.6 finishHandler:^{}];
     };
     [c1 addSubview:self.timeline];
     self.timeLabel = [[UILabel alloc] initWithFrame:CGRectMake(cardPad, cardPad + 42, 160, rowH)];
@@ -1097,6 +1098,13 @@ static NSString *const kNoteDev =
 // ---------------- 刷新 ----------------
 // 高频（10Hz）：位置/时长/进度条/速度
 - (void)refreshFast {
+    static uint64_t lastSeekResult = 0;
+    bool seekOK = false;
+    uint64_t result = xrc_gameplay_seek_result(&seekOK);
+    if (result && result != lastSeekResult) {
+        lastSeekResult = result;
+        if (!seekOK) [WHToast showMessage:@"跳转未完成或场景已变化，请重试" duration:1.6 finishHandler:^{}];
+    }
     uint32_t len = xrc_player_song_length_ms();
     uint32_t pos = xrc_player_position_ms();
     if (len == 0) len = MAX(pos, 1000);
