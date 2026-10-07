@@ -17,24 +17,9 @@
   },
   "stub_entry_expect": "f85fbca9f65701a9f44f02a9",
   "brk_hooks": [
-    [
-      "timing_input",
-      "0x100921120",
-      "0x10146c170",
-      "1f010a6b"
-    ],
-    [
-      "timing_arc_input",
-      "0x100921dac",
-      "0x10146c178",
-      "3f01086b"
-    ],
-    [
-      "flow_ui",
-      "0x10017a8d8",
-      "0x10146c180",
-      "1f01156b"
-    ],
+    ["timing_input", "0x100921120", "0x10146c170", "1f010a6b"],
+    ["timing_arc_input", "0x100921dac", "0x10146c178", "3f01086b"],
+    ["flow_ui", "0x10017a8d8", "0x10146c180", "1f01156b"],
     [
       "applog_send",
       "0x1006257dc",

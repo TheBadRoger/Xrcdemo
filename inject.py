@@ -922,6 +922,11 @@ def main():
         sys.exit(check_binary(sys.argv[i + 1]))
     do_stub = "--stub" in sys.argv
     do_brk = "--brk" in sys.argv
+    if not os.path.isfile(MAIN):
+        print(f"[!] main not found: {MAIN}")
+        sys.exit(1)
+    # Feature availability is version-dependent; resolve the bundle before selection.
+    select_bundle_profile(MAIN)
     g_selected_features, g_features_desc = features_selected(sys.argv)
     print(f"[i] build feature set: {g_features_desc} ({len(g_selected_features)} 个功能)")
     for _n, _sites, _rel, _st, _note in FEATURES:
@@ -930,33 +935,42 @@ def main():
             print(f"    [{mark}] {_n:16s} {_st:10s} {_note}")
         except Exception:
             print(f"    [{mark}] {_n}")
-    if not os.path.isfile(MAIN):
-        print(f"[!] main not found: {MAIN}")
-        sys.exit(1)
-
-    select_bundle_profile(MAIN)
-
     try:
         dylibs = find_dylibs()
     except FileNotFoundError as e:
         print(f"[!] {e}")
         sys.exit(1)
 
+    with open(dylibs[0], "rb") as handle:
+        plugin_bytes = handle.read()
+
     # 7.0.255 artifacts cannot handle the relocated 7.0.256 sites. Reject them
     # before copying files or changing Info.plist/the executable.
     if ACTIVE_GAME_VERSION == "7.0.256":
         marker = b"xrc-profile:7.0.256"
-        if marker not in open(dylibs[0], "rb").read():
+        if marker not in plugin_bytes:
             print("[!] libxrcdemo.dylib is not a 7.0.256 build; rebuild with XRC_GAME_VERSION=7.0.256")
             sys.exit(3)
 
+        new_sites = [h for h in BRK_HOOKS if h[0].startswith("konzetsu_")]
+        with open(MAIN, "rb") as handle:
+            main_bytes = handle.read()
+        base = fat_arm64_slice_offset(main_bytes)
+        has_existing_hooks = any(main_bytes[base + site - 0x100000000:
+                                            base + site - 0x100000000 + 4] == BRK_INSN
+                                 for _n, site, _r, _e in new_sites)
+        if (do_brk and "konzetsu" in g_selected_features) or has_existing_hooks:
+            if b"konzetsu-practice v1" not in plugin_bytes:
+                print("[!] Konzetsu hooks require a rebuilt 7.0.256 dylib with 'konzetsu-practice v1'")
+                sys.exit(3)
+
     if any(n in ("timing_input", "timing_arc_input", "flow_ui") for n, _s, _r, _e in BRK_HOOKS):
-        if b"practice-timing v1" not in open(dylibs[0], "rb").read():
+        if b"practice-timing v1" not in plugin_bytes:
             print("[!] new practice hooks require a rebuilt dylib with 'practice-timing v1'; refusing old artifacts")
             sys.exit(3)
 
     if do_brk and "note_flow" in g_selected_features:
-        if b"practice-flow v2" not in open(dylibs[0], "rb").read():
+        if b"practice-flow v2" not in plugin_bytes:
             print("[!] native flow consumer patches require a rebuilt dylib with 'practice-flow v2'")
             sys.exit(3)
 
