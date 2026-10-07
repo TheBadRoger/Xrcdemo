@@ -30,6 +30,8 @@
 #include "XRCAudio.h"
 #include "XRCReplay.h"
 #include "XRCFlow.h"
+#include "XRCKonzetsu.h"
+#include "XRCKonzetsuMath.h"
 #include "XRCPracticeMath.h"
 #import "XRCTimelineView.h"
 #import "XRCSwitchRow.h"
@@ -94,6 +96,10 @@ static NSString *const kNoteDev =
 @property (nonatomic, strong) UILabel *judgeHdr;
 @property (nonatomic, strong) XRCSwitchRow *swAutoplay;
 @property (nonatomic, strong) XRCSwitchRow *swJudgeTimeLock;
+@property (nonatomic, strong) UIButton *konzetsuSelect;
+@property (nonatomic, strong) XRCSwitchRow *swKonzetsuEnabled;
+@property (nonatomic, strong) XRCSwitchRow *swKonzetsuChallenge;
+@property (nonatomic, strong) UILabel *konzetsuStatus;
 // 解锁
 @property (nonatomic, strong) XRCSwitchRow *swOwn;
 @property (nonatomic, strong) XRCSwitchRow *swCb;
@@ -121,6 +127,9 @@ static NSString *const kNoteDev =
 - (void)rebuildContent;
 - (void)relayoutScroll;
 - (void)toggleInfo;
+- (void)updateKonzetsuMenu;
+- (void)toggleKonzetsuEnabled;
+- (void)toggleKonzetsuChallenge;
 - (CGFloat)note:(NSString *)text at:(CGFloat)x y:(CGFloat)y w:(CGFloat)w;
 - (CGFloat)note:(NSString *)text afterCard:(UIView *)card x:(CGFloat)x y:(CGFloat)y w:(CGFloat)w;
 - (void)sectionLabel:(NSString *)title hint:(NSString *)hint x:(CGFloat)x y:(CGFloat)y w:(CGFloat)w;
@@ -475,6 +484,34 @@ static NSString *const kNoteDev =
     y = [self note:kNoteJudge at:x0 y:y w:W] + secGap;
 
     }   // 判定段（无桩时显示禁用原因）
+
+    // Konzetsu practice: menu choices and two persistent toggle buttons.
+    [self sectionLabel:@"Konzetsu 练习" hint:@"下次开局生效" x:x0 y:y w:W];
+    y += secH + 4;
+    UIView *kc = [self cardAt:x0 y:y w:W];
+    self.konzetsuSelect = [self makeActionButton:@"选择挑战"];
+    self.konzetsuSelect.frame = CGRectMake(cardPad, cardPad, W - cardPad * 2, rowH);
+    self.konzetsuSelect.showsMenuAsPrimaryAction = YES;
+    [kc addSubview:self.konzetsuSelect];
+    [self updateKonzetsuMenu];
+    CGFloat kw = (W - cardPad * 2 - gap) / 2;
+    self.swKonzetsuEnabled = [[XRCSwitchRow alloc] initWithTitle:@"启用"];
+    self.swKonzetsuEnabled.note = @"把选中的效果应用于下一次加载的谱面。游玩中更改不会修改本局；退出选曲再开局应用新设置。";
+    self.swKonzetsuEnabled.frame = CGRectMake(cardPad, cardPad + rowH + gap, kw, rowH);
+    [self.swKonzetsuEnabled addTarget:self action:@selector(toggleKonzetsuEnabled) forControlEvents:UIControlEventTouchUpInside];
+    [kc addSubview:self.swKonzetsuEnabled];
+    self.swKonzetsuChallenge = [[XRCSwitchRow alloc] initWithTitle:@"挑战"];
+    self.swKonzetsuChallenge.note = @"与启用同时打开时使用挑战血条；只打开启用则使用普通橘色 HARD 血条。挑战开关会记住选择，但单独开启不会改变游戏。";
+    self.swKonzetsuChallenge.frame = CGRectMake(cardPad + kw + gap, cardPad + rowH + gap, kw, rowH);
+    [self.swKonzetsuChallenge addTarget:self action:@selector(toggleKonzetsuChallenge) forControlEvents:UIControlEventTouchUpInside];
+    [kc addSubview:self.swKonzetsuChallenge];
+    self.konzetsuStatus = [[UILabel alloc] initWithFrame:CGRectMake(cardPad, cardPad + (rowH + gap) * 2, W - cardPad * 2, 28)];
+    self.konzetsuStatus.font = [UIFont systemFontOfSize:10];
+    self.konzetsuStatus.textColor = [UIColor colorWithWhite:0.6 alpha:1.0];
+    self.konzetsuStatus.numberOfLines = 2;
+    [kc addSubview:self.konzetsuStatus];
+    kc.frame = CGRectMake(x0, y, W, cardPad * 2 + (rowH + gap) * 2 + 28);
+    y = [self note:@"选项：下隐、变速、上下反、点血条、综合。普通歌曲的综合按谱面时长生成练习时间表；点血条配合挑战开关使用。" afterCard:kc x:x0 y:y w:W] + secGap;
 
     // ============ ④ 解锁 ============
     // 解锁：按构建期功能集显示；一项都没有则整段隐藏
@@ -902,6 +939,49 @@ static NSString *const kNoteDev =
     [self refresh];
 }
 
+- (void)updateKonzetsuMenu {
+    xrc_config_t config; xrc_config_load(&config);
+    NSArray<NSString *> *names = @[@"下隐", @"变速", @"上下反", @"点血条", @"综合"];
+    NSArray<NSNumber *> *ids = @[@1, @2, @3, @4, @6];
+    NSMutableArray<UIAction *> *items = [NSMutableArray new];
+    __weak typeof(self) weakSelf = self;
+    for (NSUInteger i = 0; i < ids.count; i++) {
+        int choice = ids[i].intValue;
+        UIAction *item = [UIAction actionWithTitle:names[i] image:nil identifier:nil handler:^(__kindof UIAction *action) {
+            xrc_config_t next; xrc_config_load(&next);
+            next.konzetsu_id = choice;
+            xrc_config_save(&next);
+            xrc_konzetsu_configure(next.konzetsu_id, next.konzetsu_enabled, next.konzetsu_challenge);
+            [weakSelf updateKonzetsuMenu];
+            [weakSelf refresh];
+            [WHToast showMessage:@"挑战已保存，下一次开局生效" duration:1.4 finishHandler:^{}];
+        }];
+        item.state = config.konzetsu_id == choice ? UIMenuElementStateOn : UIMenuElementStateOff;
+        [items addObject:item];
+        if (config.konzetsu_id == choice)
+            [self.konzetsuSelect setTitle:[NSString stringWithFormat:@"选择挑战：%@", names[i]] forState:UIControlStateNormal];
+    }
+    self.konzetsuSelect.menu = [UIMenu menuWithTitle:@"Konzetsu" children:items];
+}
+- (void)toggleKonzetsuEnabled {
+    if (!xrc_konzetsu_available()) return;
+    xrc_config_t config; xrc_config_load(&config);
+    config.konzetsu_enabled = !config.konzetsu_enabled;
+    xrc_config_save(&config);
+    xrc_konzetsu_configure(config.konzetsu_id, config.konzetsu_enabled, config.konzetsu_challenge);
+    [self refresh];
+    [WHToast showMessage:@"效果开关已保存，下一次开局生效" duration:1.4 finishHandler:^{}];
+}
+- (void)toggleKonzetsuChallenge {
+    if (!xrc_konzetsu_available()) return;
+    xrc_config_t config; xrc_config_load(&config);
+    config.konzetsu_challenge = !config.konzetsu_challenge;
+    xrc_config_save(&config);
+    xrc_konzetsu_configure(config.konzetsu_id, config.konzetsu_enabled, config.konzetsu_challenge);
+    [self refresh];
+    [WHToast showMessage:@"血条开关已保存，下一次开局生效" duration:1.4 finishHandler:^{}];
+}
+
 // 开关：统一"读配置 → 翻转 → 保存 → 即时生效 → 刷新"路径
 #define XRC_TOGGLE_SWITCH(KEY, SETTER, ONMSG, OFFMSG)                                   \
     do {                                                                                \
@@ -1136,6 +1216,15 @@ static NSString *const kNoteDev =
     self.swReplay.on     = xrc_replay_enabled();
     self.swAutoplay.on   = xrc_judge_autoplay();
     self.swJudgeTimeLock.on = xrc_judge_time_lock();
+    xrc_config_t kc; xrc_config_load(&kc);
+    BOOL konzetsuAvailable = xrc_konzetsu_available();
+    self.konzetsuSelect.enabled = konzetsuAvailable;
+    self.swKonzetsuEnabled.enabled = self.swKonzetsuChallenge.enabled = konzetsuAvailable;
+    self.swKonzetsuEnabled.on = kc.konzetsu_enabled;
+    self.swKonzetsuChallenge.on = kc.konzetsu_challenge;
+    self.konzetsuStatus.text = konzetsuAvailable
+        ? @"已保存的设置在下一次加载谱面时应用。\n本局保持开局设置，原生重试可能沿用本局谱面。"
+        : @"当前游戏或主程序未包含完整挑战练习桩。\n需使用 7.0.256 配套产物重新部署。";
     self.swJudgeTimeLock.enabled = xrc_judge_is_active() && xrc_feature_complete("judge_time_lock");
     self.flowField.enabled = self.flowApplyBtn.enabled = xrc_feature_complete("note_flow");
     if (!self.flowField.isFirstResponder && self.flowField.enabled)

@@ -17,9 +17,24 @@
   },
   "stub_entry_expect": "f85fbca9f65701a9f44f02a9",
   "brk_hooks": [
-    ["timing_input", "0x100921120", "0x10146c170", "1f010a6b"],
-    ["timing_arc_input", "0x100921dac", "0x10146c178", "3f01086b"],
-    ["flow_ui", "0x10017a8d8", "0x10146c180", "1f01156b"],
+    [
+      "timing_input",
+      "0x100921120",
+      "0x10146c170",
+      "1f010a6b"
+    ],
+    [
+      "timing_arc_input",
+      "0x100921dac",
+      "0x10146c178",
+      "3f01086b"
+    ],
+    [
+      "flow_ui",
+      "0x10017a8d8",
+      "0x10146c180",
+      "1f01156b"
+    ],
     [
       "applog_send",
       "0x1006257dc",
@@ -193,6 +208,42 @@
       "0x100b025a8",
       "0x0",
       "01008052"
+    ],
+    [
+      "konzetsu_chart",
+      "0x100910ce0",
+      "0x10146c188",
+      "ef3bb66d"
+    ],
+    [
+      "konzetsu_id",
+      "0x100ab1de8",
+      "0x10146c190",
+      "003840b9"
+    ],
+    [
+      "konzetsu_active",
+      "0x100aafcb4",
+      "0x10146c198",
+      "083840b9"
+    ],
+    [
+      "konzetsu_score",
+      "0x100acd8d0",
+      "0x10146c1a0",
+      "ff4302d1"
+    ],
+    [
+      "konzetsu_hpbar",
+      "0x100baad08",
+      "0x10146c1a8",
+      "ef3bb66d"
+    ],
+    [
+      "konzetsu_info",
+      "0x100ab2af0",
+      "0x10146c1b0",
+      "ffc300d1"
     ]
   ],
   "restore_sites": [

@@ -50,6 +50,9 @@ static void s_ensure_defaults(NSMutableDictionary *p) {
     if (!p[@"judgeLostMs"]) p[@"judgeLostMs"] = @120;
     if (!p[@"judgeTimeLock"]) p[@"judgeTimeLock"] = @NO;
     if (!p[@"noteFlow"]) p[@"noteFlow"] = @0;
+    if (!p[@"konzetsuId"]) p[@"konzetsuId"] = @1;
+    if (!p[@"konzetsuEnabled"]) p[@"konzetsuEnabled"] = @NO;
+    if (!p[@"konzetsuChallenge"]) p[@"konzetsuChallenge"] = @NO;
     // 私服接入：默认关闭；地址留空（面板占位符给示例），需要时自行填写
     if (!p[@"netEnabled"]) p[@"netEnabled"] = @NO;
     if (!p[@"netBase"])    p[@"netBase"]    = @"";
@@ -129,6 +132,11 @@ void xrc_config_load(xrc_config_t *out) {
     out->judge_lost_ms  = [prefs[@"judgeLostMs"] intValue];
     out->judge_time_lock = [prefs[@"judgeTimeLock"] boolValue];
     out->note_flow = [prefs[@"noteFlow"] doubleValue];
+    out->konzetsu_id = [prefs[@"konzetsuId"] intValue];
+    if (out->konzetsu_id != 1 && out->konzetsu_id != 2 && out->konzetsu_id != 3
+        && out->konzetsu_id != 4 && out->konzetsu_id != 6) out->konzetsu_id = 1;
+    out->konzetsu_enabled = [prefs[@"konzetsuEnabled"] boolValue];
+    out->konzetsu_challenge = [prefs[@"konzetsuChallenge"] boolValue];
     xrc_config_normalize_judge(out);
     out->net_enabled    = [prefs[@"netEnabled"] boolValue];
     out->net_base       = [prefs[@"netBase"] length] ? prefs[@"netBase"] : nil;
@@ -157,6 +165,9 @@ void xrc_config_save(const xrc_config_t *c) {
     p[@"judgeLostMs"]   = @(c->judge_lost_ms);
     p[@"judgeTimeLock"] = @(c->judge_time_lock);
     p[@"noteFlow"] = @(c->note_flow);
+    p[@"konzetsuId"] = @(c->konzetsu_id);
+    p[@"konzetsuEnabled"] = @(c->konzetsu_enabled);
+    p[@"konzetsuChallenge"] = @(c->konzetsu_challenge);
     p[@"netEnabled"]    = @(c->net_enabled);
     p[@"netBase"]       = c->net_base ?: @"";
     p[@"netMatch"]      = c->net_match ?: @"";

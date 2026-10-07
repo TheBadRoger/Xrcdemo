@@ -164,6 +164,9 @@ RESTORE_SITES = [
 #   status: required=守崩必备 / stable=稳定 / redundant=由其它机制覆盖（默认不进 release）
 #           / debug=调试采集（默认不进 release）
 FEATURES = [
+    ("konzetsu", ["konzetsu_chart", "konzetsu_id", "konzetsu_active", "konzetsu_score",
+                   "konzetsu_hpbar", "konzetsu_info"], True, "experimental",
+     "7.0.256 离线挑战练习：下隐/变速/上下反/点血条/综合，下次开局生效"),
     ("judge_time_lock", ["timing_input", "timing_arc_input", "ap_note_win", "ap_arctap_win"], True, "stable",
      "锁定现实毫秒判定窗口，同步输入预筛选与音符过期窗口"),
     ("note_flow", ["flow_ui"], True, "stable", "解除下落流速设置的 1.0–6.5 范围限制"),
@@ -192,7 +195,7 @@ FEATURES = [
 
 def features_selected(argv):
     """按 --profile/--features 选出本次要注入的功能名集合 → (set, 描述串)。"""
-    names = [f[0] for f in FEATURES]
+    names = [f[0] for f in FEATURES if f[0] != "konzetsu" or ACTIVE_GAME_VERSION == "7.0.256"]
     if "--features" in argv:
         i = argv.index("--features")
         if i + 1 >= len(argv):
@@ -207,7 +210,7 @@ def features_selected(argv):
         return set(names), "profile=dev(全量)"
     if prof != "release":
         raise SystemExit(f"unknown profile: {prof} (release|dev)")
-    return {n for n, _s, rel, _st, _note in FEATURES if rel}, "profile=release"
+    return {n for n, _s, rel, _st, _note in FEATURES if rel and n in names}, "profile=release"
 
 
 def sites_for(feat_names):

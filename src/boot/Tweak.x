@@ -29,6 +29,7 @@
 #include "XRCGameplay.h"
 #include "XRCJudge.h"
 #include "XRCFlow.h"
+#include "XRCKonzetsu.h"
 #include "XRCConfig.h"
 #include "XRCHook.h"
 #include "XRCDump.h"
@@ -176,6 +177,7 @@ static void doBootstrap(void) {
         // BRK 桩：处理器已在 %ctor 装好，这里只注册桩点（见 XRCProfile.h）。
         @try { xrc_brk_setup(base); }           @catch (NSException *e) { xrc_logw(XRCLC_BOOT, @"brk EX: %@", e); }
         xrc_apply_switches();   // 开关统一入口（%ctor 已调过一次；此处幂等刷新）
+        xrc_konzetsu_tick();
         // 私服重定向：NSURLConnection 层改写 URL（不改 TLS；换域后 pin 自然放行）
         @try {
             xrc_net_install();
@@ -264,6 +266,7 @@ static void doBootstrap(void) {
             }
 #endif
             xrc_flow_tick();
+            xrc_konzetsu_tick();
             void *p = xrc_player_get();
             if (xrc_player_detect_change(p)) {
                 xrc_logd(XRCLC_JUDGE, @"new song: player=%p", p);
@@ -319,6 +322,7 @@ static void onAppLaunched(CFNotificationCenterRef center, void *observer,
 // 后台线程跑，因此 %ctor 即设好（doBootstrap 太晚）。%ctor 与 doBootstrap 都调用
 //（幂等，均为原子写）。
 static void xrc_apply_switches(void) {
+    xrc_konzetsu_configure(g_cfg.konzetsu_id, g_cfg.konzetsu_enabled, g_cfg.konzetsu_challenge);
     @try {
         xrc_brk_set_unlock_own(g_cfg.unlock_own);
     } @catch (NSException *e) { xrc_logw(XRCLC_BOOT, @"unlock flags EX: %@", e); }
