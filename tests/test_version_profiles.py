@@ -4,6 +4,16 @@ import inject
 
 
 class VersionProfileTests(unittest.TestCase):
+    def test_retired_pack_switches_are_not_injected(self):
+        for version in ("7.0.255", "7.0.256"):
+            inject.configure_profile(version)
+            for profile in ("release", "dev"):
+                features, _ = inject.features_selected(["--profile", profile])
+                self.assertNotIn("unlock_lock", features)
+                self.assertTrue({"lock_fv", "lock_do", "fv_gate"}.isdisjoint(inject.sites_for(features)))
+        with self.assertRaises(SystemExit):
+            inject.features_selected(["--features", "unlock_lock"])
+
     def tearDown(self):
         inject.configure_profile("7.0.255")
 

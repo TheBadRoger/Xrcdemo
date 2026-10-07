@@ -169,8 +169,6 @@ FEATURES = [
     ("note_flow", ["flow_ui"], True, "stable", "解除下落流速设置的 1.0–6.5 范围限制"),
     ("unlock_own",     ["unlock_l1", "unlock_l2", "unlock_l3"],                    False, "redundant",
      "拥有链三层：归属由 cb 三清单 + 服务器授予决定；本组覆盖服务器未授予而本地已有内容的场景"),
-    ("unlock_lock",    ["lock_fv", "lock_do", "fv_gate"],                          True,  "stable",
-     "曲目锁态覆盖（FV/DO 五难度全解）+ 终章链门放行（整表解锁总闸）"),
     ("chain_guard",    ["chain_prog"],                                             True,  "required",
      "7.0 链查表守崩桩（恒生效；防改名/挪包 NULL 崩）"),
     ("cb_free",        ["cb_ready", "cb_filehash", "cb_listhash", "cb_wipe", "cb_dispatch"], True, "stable",
@@ -219,7 +217,8 @@ def sites_for(feat_names):
         if n in feat_names:
             keep.update(sites)
     listed = {x for _n, ss, _r, _st, _no in FEATURES for x in ss}
-    keep.update(n for n, _s, _r, _e in BRK_HOOKS if n not in listed)
+    retired = {"lock_fv", "lock_do", "fv_gate"}
+    keep.update(n for n, _s, _r, _e in BRK_HOOKS if n not in listed and n not in retired)
     return keep
 
 

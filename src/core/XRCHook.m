@@ -184,23 +184,11 @@ static void s_ret(uint64_t val, void *vctx) {
 
 // 四个独立开关：
 //   own  → unlock_l1/l2/l3（拥有链；覆盖"服务器未授予、本地已有内容"的离线场景）
-//   fv   → lock_fv（FV 五曲 fast path → 五难度全解）
-//   do   → lock_do（DO/konzetsu 分支 → 同上）
-//   gate → fv_gate（终章链门；**1 = 放行**，决定整表是否解锁）
 // 另有 chain_prog（守崩桩）**不设开关、恒生效**，见下。
 static _Atomic(bool) s_unlock_own = false;
-static _Atomic(bool) s_unlock_fv  = false;
-static _Atomic(bool) s_unlock_do  = false;
-static _Atomic(bool) s_gate_open  = false;
 
 void xrc_brk_set_unlock_own(bool on) { atomic_store(&s_unlock_own, on); }
-void xrc_brk_set_unlock_fv(bool on)  { atomic_store(&s_unlock_fv, on); }
-void xrc_brk_set_unlock_do(bool on)  { atomic_store(&s_unlock_do, on); }
-void xrc_brk_set_gate_open(bool on)  { atomic_store(&s_gate_open, on); }
 bool xrc_brk_unlock_own(void) { return atomic_load(&s_unlock_own); }
-bool xrc_brk_unlock_fv(void)  { return atomic_load(&s_unlock_fv); }
-bool xrc_brk_unlock_do(void)  { return atomic_load(&s_unlock_do); }
-bool xrc_brk_gate_open(void)  { return atomic_load(&s_gate_open); }
 
 static void s_unlock_force_true(void *vctx) {     // unlock_l1/l2/l3 共用
     if (!atomic_load(&s_unlock_own)) return;
@@ -262,35 +250,8 @@ static void s_cb_skip_void(void *vctx) {
         (void *)__darwin_arm_thread_state64_get_lr(*ss));
 }
 
-// ---------------- 曲目锁态覆盖 ----------------
-// 锁状态函数 `sub_100919E5C` 内的两个专属子分支（各自唯一调用方 = 锁态函数自身）：
-//   · 0x100991508 = FV 五曲 fast path（硬编码集合经 song+0x257 开关；id 改名后该路不再命中）；
-//   · 0x100AAE50C = DO(konzetsu) 分支（读存档 insightPrechallengeRevealIndex；未推进时只放行 FTR/INS）。
-// 二者都返回"五字节打包"的按难度解锁位（b0..b4 = PST/PRS/FTR/BYD/INS，**1 = 可玩**）→
-// 直返 `0x0101010101` = 五难度全解。
-// ⚠ DO 专属曲绘与 b4 的冲突（实测）：`sub_10084EE7C` 里"包==konzetsu 且锁态 b4 置位
-//   → 用 img/jacket_locked_konzetsu.jpg"。五字节全置 1 会让 DO 曲显示那张专属曲绘（**是曲绘、
-//   不是挂锁**，可玩性不受影响）；反之让 b4=0 保普通曲绘，则 cell 的"全 1 才算解锁"判据失败 →
-//   挂锁回来。二者共用 b4，**不可兼得**，现取"无挂锁 + 专属曲绘"。
-static void s_lock_fv(void *vctx) {
-    if (!atomic_load(&s_unlock_fv)) return;
-    s_ret(0x0000000101010101ULL, vctx);
-}
-static void s_lock_do(void *vctx) {
-    if (!atomic_load(&s_unlock_do)) return;
-    s_ret(0x0000000101010101ULL, vctx);
-}
-
-// 终章链门覆盖（开关 gateOpen）：
-// `sub_10099156C` 的返回语义经两处消费点钉死——
-//   ① `sub_100919874`（可玩性谓词）直返它的值，消费点 sub_1008660F8 的 `CBNZ W0`（选中该难度）
-//      把非零当"可用"；
-//   ② `sub_100991508` 里 `if (56C & 1) → 返回全 0 字节（全锁）`，方向一致。
-//   ⇒ **1 = 放行、0 = 锁**（返 0 会把全曲钉死）；入口直返 **1**。
-static void s_finale_gate_open(void *vctx) {
-    if (!atomic_load(&s_gate_open)) return;
-    s_ret(1, vctx);
-}
+// Legacy BRK entries are retained solely to replay the original instruction.
+static void s_legacy_lock_passthrough(void *vctx) { (void)vctx; }
 
 // 链进度覆盖：`sub_10098FB1C` 是 7.0 新增「链」系统的查表点——硬编码曲名（InitFunc_194 表）
 //   拼 `"<名>|<难度>"` 去 mgr+0x28 容器查节点对象，而对象按 songlist 的 **id** 注册 → id 改名或
@@ -767,9 +728,9 @@ static const xrc_brk_entry_t k_brk_entries[] = {
     { "ap_tickcnt1",      XRC_BRK_AP_TICKCNT1_SITE_OFF,     XRC_BRK_AP_TICKCNT1_REPLAY_OFF,     s_ap_tickcnt1 },
     { "ap_tickcnt2",      XRC_BRK_AP_TICKCNT2_SITE_OFF,     XRC_BRK_AP_TICKCNT2_REPLAY_OFF,     s_ap_tickcnt2 },
     // ---- 曲目锁态覆盖 + 链守卫 ----
-    { "lock_fv",          XRC_BRK_LOCK_FV_SITE_OFF,         XRC_BRK_LOCK_FV_REPLAY_OFF,         s_lock_fv },
-    { "lock_do",          XRC_BRK_LOCK_DO_SITE_OFF,         XRC_BRK_LOCK_DO_REPLAY_OFF,         s_lock_do },
-    { "fv_gate",          XRC_BRK_FV_GATE_SITE_OFF,         XRC_BRK_FV_GATE_REPLAY_OFF,         s_finale_gate_open },
+    { "lock_fv",          XRC_BRK_LOCK_FV_SITE_OFF,         XRC_BRK_LOCK_FV_REPLAY_OFF,         s_legacy_lock_passthrough },
+    { "lock_do",          XRC_BRK_LOCK_DO_SITE_OFF,         XRC_BRK_LOCK_DO_REPLAY_OFF,         s_legacy_lock_passthrough },
+    { "fv_gate",          XRC_BRK_FV_GATE_SITE_OFF,         XRC_BRK_FV_GATE_REPLAY_OFF,         s_legacy_lock_passthrough },
     { "chain_prog",       XRC_BRK_CHAIN_PROG_SITE_OFF,      XRC_BRK_CHAIN_PROG_REPLAY_OFF,      s_chain_prog_neutral },
     // 弧/绘制观测桩（只观测不改行为；见本文件顶部"弧/绘制 观测桩"长注释）
     { "rpf_draw",         XRC_BRK_RPF_DRAW_SITE_OFF,        0,                                   s_rpf_draw },
@@ -939,7 +900,6 @@ static const xrc_feature_sites_t k_feature_sites[] = {
     { "judge_time_lock", { "timing_input", "timing_arc_input", "ap_note_win", "ap_arctap_win" }, 4 },
     { "note_flow", { "flow_ui" }, 1 },
     { "unlock_own",     { "unlock_l1", "unlock_l2", "unlock_l3" }, 3 },
-    { "unlock_lock",    { "lock_fv", "lock_do", "fv_gate" }, 3 },
     { "chain_guard",    { "chain_prog" }, 1 },
     { "cb_free",        { "cb_ready", "cb_filehash", "cb_listhash", "cb_wipe", "cb_dispatch" }, 5 },
     { "autoplay",       { "ap_ln_state", "ap_ln_tick", "ap_note_win", "ap_arctap_win",
@@ -1055,16 +1015,14 @@ void xrc_brk_setup(uint64_t image_base) {
     // 配对标记 ①：自动演奏站点（ap_*）由本 dylib 处理；旧 dylib 无此表 → 注入脚本拒配。
     // ⚠ **必须纯 ASCII**：inject.py 按 UTF-8 原字节搜标记串；而含非 ASCII 的 @"..." 会被
     // clang 编成 UTF-16（CFString），字节层面搜不到 → 假阴性拒配。
-    xrc_logi(XRCLC_BOOT, @"[brk] autoplay-eve v1 ready (mark=arc-consume/hold-held, finale-gate=1 allow, chain-guard; autoplay=%d)", (int)xrc_judge_autoplay());
+    xrc_logi(XRCLC_BOOT, @"[brk] autoplay-eve v1 ready (mark=arc-consume/hold-held, legacy-lock=pass-through, chain-guard; autoplay=%d)", (int)xrc_judge_autoplay());
     // 配对标记 ②：链进度覆盖桩（chain_prog，7.0 新增「链」系统的查表点）由本 dylib 处理；
     // 旧 dylib 命中该站点会重放原指令 → 崩因依旧，注入脚本据此拒配。此桩**不设开关、恒生效**。
     xrc_logi(XRCLC_BOOT, @"[brk] chain-guard v1 ready (chain_prog -> 100, always-on)");
     xrc_logi(XRCLC_BOOT, @"[brk] cb-ready-native v1: initialization readiness preserved; hash/wipe overrides unchanged");
     // 开关组（策略/plist 驱动）
-    xrc_logi(XRCLC_BOOT, @"[brk] switches: own=%d fv=%d do=%d gate=%d (slots=%d)",
-            (int)atomic_load(&s_unlock_own), (int)atomic_load(&s_unlock_fv),
-            (int)atomic_load(&s_unlock_do),  (int)atomic_load(&s_gate_open),
-            atomic_load(&s_count));
+    xrc_logi(XRCLC_BOOT, @"[brk] switches: own=%d; retired locks pass through (slots=%d)",
+            (int)atomic_load(&s_unlock_own), atomic_load(&s_count));
 #if XRC_DEBUG_BUILD
     xrc_brk_capture_enable(true);   // applog 明文/密文捕获（开发构建）
 #endif

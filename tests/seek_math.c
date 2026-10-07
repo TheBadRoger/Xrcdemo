@@ -16,5 +16,18 @@ int main(void) {
     assert(xrc_seek_landed(45032, 45000, 16000, 2.0)); // playing at 2x
     assert(xrc_seek_landed(45008, 45000, 16000, 0.5));
     assert(!xrc_seek_landed(44900, 45100, 16000, 1.0));
+    // DSP delay is converted from real ms separately at each playback speed.
+    assert(xrc_seek_output_delay(1.0, 96.0) == 96);
+    assert(xrc_seek_output_delay(0.75, 96.0) == 72);
+    assert(xrc_seek_output_delay(0.6, 96.0) == 58);
+    assert(xrc_seek_output_delay(0.5, 96.0) == 48);
+    assert(xrc_seek_output_delay(0.25, 96.0) == 24);
+    assert(xrc_seek_output_delay(0.0, 96.0) == 0);
+    assert(xrc_seek_output_delay(1.0, 0.0) == 0);
+    const int calibration = 20;
+    assert(xrc_seek_calibrated_offset(calibration, 96) == -76);
+    assert(xrc_seek_calibrated_offset(calibration, 48) == -28);
+    assert(xrc_seek_calibrated_offset(calibration, 24) == -4);
+    assert(xrc_seek_calibrated_offset(INT_MIN, 96) == INT_MIN);
     return 0;
 }

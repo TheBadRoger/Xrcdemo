@@ -23,6 +23,7 @@ static void s_migrate_legacy_if_needed(void) {
 }
 
 static void s_ensure_defaults(NSMutableDictionary *p) {
+    [p removeObjectsForKeys:@[@"unlockFv", @"unlockDo", @"gateOpen"]];
     if (!p[@"speedKeys"] || ![p[@"speedKeys"] count]) {
         p[@"speedKeys"] = [@[@"speed-1", @"speed-2", @"speed-3", @"speed-4", @"speed-5"] mutableCopy];
         p[@"speed-1"] = @1.00;
@@ -55,9 +56,6 @@ static void s_ensure_defaults(NSMutableDictionary *p) {
     if (!p[@"netMatch"])   p[@"netMatch"]   = @"";
     // 开关组：默认全关（打开前先确认已了解风险——服务端成绩校验仍会拒）
     if (!p[@"unlockOwn"])  p[@"unlockOwn"]  = @NO;
-    if (!p[@"unlockFv"])   p[@"unlockFv"]   = @NO;
-    if (!p[@"unlockDo"])   p[@"unlockDo"]   = @NO;
-    if (!p[@"gateOpen"])   p[@"gateOpen"]   = @NO;
     // cb 验证链开关：默认开（离线自用前提）——注意与 xrc_config_load 的缺省保持一致。
     if (!p[@"cbBypass"])   p[@"cbBypass"]   = @YES;
     // 存储外置：默认开（cb 搬到 Documents，免越狱下外部可管理的唯一通道）
@@ -136,9 +134,6 @@ void xrc_config_load(xrc_config_t *out) {
     out->net_base       = [prefs[@"netBase"] length] ? prefs[@"netBase"] : nil;
     out->net_match      = [prefs[@"netMatch"] length] ? prefs[@"netMatch"] : nil;
     out->unlock_own     = [prefs[@"unlockOwn"] boolValue];
-    out->unlock_fv      = [prefs[@"unlockFv"] boolValue];
-    out->unlock_do      = [prefs[@"unlockDo"] boolValue];
-    out->gate_open      = [prefs[@"gateOpen"] boolValue];
     // 以下各项缺省由 s_ensure_defaults 单点提供（dict 里必有键）——load 直读，无需重复兜底
     out->cb_bypass      = [prefs[@"cbBypass"] boolValue];
     out->external_cb    = [prefs[@"externalCb"] boolValue];
@@ -166,9 +161,6 @@ void xrc_config_save(const xrc_config_t *c) {
     p[@"netBase"]       = c->net_base ?: @"";
     p[@"netMatch"]      = c->net_match ?: @"";
     p[@"unlockOwn"]     = @(c->unlock_own);
-    p[@"unlockFv"]      = @(c->unlock_fv);
-    p[@"unlockDo"]      = @(c->unlock_do);
-    p[@"gateOpen"]      = @(c->gate_open);
     p[@"cbBypass"]      = @(c->cb_bypass);
     p[@"externalCb"]    = @(c->external_cb);
     p[@"autoplay"]      = @(c->autoplay);

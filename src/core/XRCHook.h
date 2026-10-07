@@ -41,17 +41,8 @@ void xrc_brk_setup_early(void);
 // 置假恢复原行为（重放跳板）。async-signal-safe：处理器只做原子读。
 //   own  → unlock_l1/l2/l3（拥有链；归属由 cb 三清单 + 服务器授予决定，
 //          本组覆盖"未授予但本地有内容"的情形）
-//   fv   → lock_fv（FV 五曲 fast path → 五难度全解）
-//   do   → lock_do（DO/konzetsu 分支）
-//   gate → fv_gate（终章链门；1 = 放行，决定整表是否解锁）
 void xrc_brk_set_unlock_own(bool on);
-void xrc_brk_set_unlock_fv(bool on);
-void xrc_brk_set_unlock_do(bool on);
-void xrc_brk_set_gate_open(bool on);
 bool xrc_brk_unlock_own(void);
-bool xrc_brk_unlock_fv(void);
-bool xrc_brk_unlock_do(void);
-bool xrc_brk_gate_open(void);
 
 // ---- cb 验证链开关（功能账 §3）----
 // 置真后：就绪位恒真、逐文件与三清单校验恒通过、清树直返（cb 自由化）。

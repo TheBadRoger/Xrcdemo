@@ -321,9 +321,6 @@ static void onAppLaunched(CFNotificationCenterRef center, void *observer,
 static void xrc_apply_switches(void) {
     @try {
         xrc_brk_set_unlock_own(g_cfg.unlock_own);
-        xrc_brk_set_unlock_fv(g_cfg.unlock_fv);
-        xrc_brk_set_unlock_do(g_cfg.unlock_do);
-        xrc_brk_set_gate_open(g_cfg.gate_open);
     } @catch (NSException *e) { xrc_logw(XRCLC_BOOT, @"unlock flags EX: %@", e); }
     @try { xrc_brk_set_cb_bypass(g_cfg.cb_bypass); }
     @catch (NSException *e) { xrc_logw(XRCLC_BOOT, @"cb flag EX: %@", e); }

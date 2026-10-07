@@ -24,9 +24,6 @@ typedef struct {
     BOOL      unlock_own;   // 拥有链三层（unlock_l1/l2/l3）。归属由 cb 的
                             //   songlist/packlist/unlocks 三清单 + 服务器 /user/me 授予决定；
                             //   本项覆盖"未授予但本地有内容"的情形。默认关。
-    BOOL      unlock_fv;    // FV 五曲 fast path → 五难度全解
-    BOOL      unlock_do;    // DO(konzetsu) 分支 → 五难度全解
-    BOOL      gate_open;    // 终章链门：1 = 放行（决定整表是否解锁）
     // ---- cb 验证链开关（功能账 §3）----
     BOOL      cb_bypass;    // 开（默认）：cb 自由化——校验结论恒通过（文件/三表比对恒等）+ 清树直返
                             //   + 就绪恒真 + 更新错码分发直返。离线自用（改谱面/删文件不被清树）的前提。

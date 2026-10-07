@@ -96,9 +96,6 @@ static NSString *const kNoteDev =
 @property (nonatomic, strong) XRCSwitchRow *swJudgeTimeLock;
 // 解锁
 @property (nonatomic, strong) XRCSwitchRow *swOwn;
-@property (nonatomic, strong) XRCSwitchRow *swFv;
-@property (nonatomic, strong) XRCSwitchRow *swDo;
-@property (nonatomic, strong) XRCSwitchRow *swGate;
 @property (nonatomic, strong) XRCSwitchRow *swCb;
 // 网络
 @property (nonatomic, strong) XRCSwitchRow *swNet;
@@ -147,9 +144,6 @@ static NSString *const kNoteDev =
 - (void)toggleJudgeTimeLock;
 - (void)commitFlow;
 - (void)toggleOwn;
-- (void)toggleFv;
-- (void)toggleDo;
-- (void)toggleGate;
 - (void)toggleAutoplay;
 - (void)toggleCb;
 - (void)toggleNet;
@@ -486,30 +480,27 @@ static NSString *const kNoteDev =
     // 解锁：按构建期功能集显示；一项都没有则整段隐藏
     {
     int present = 0;
-    for (NSString *f in @[@"unlock_own", @"unlock_lock", @"cb_free"])
+    for (NSString *f in @[@"unlock_own", @"cb_free"])
         if (xrc_feature_present(f.UTF8String)) present++;
     if (present > 0) {
     [self sectionLabel:@"解锁" hint:@"离线/未授予时才有意义" x:x0 y:y w:W];
     y += secH + 4;
     UIView *c4 = [self cardAt:x0 y:y w:W];
     {
-        NSArray *titles = @[@"拥有链", @"FV 锁", @"DO 锁", @"链门（总闸）", @"cb 自由化"];
-        NSArray *sels  = @[@"toggleOwn", @"toggleFv", @"toggleDo", @"toggleGate", @"toggleCb"];
+        NSArray *titles = @[@"拥有链", @"cb 自由化"];
+        NSArray *sels  = @[@"toggleOwn", @"toggleCb"];
         // 构建期功能集：只建本构建注入了的项；判断见 xrc_feature_present
-        NSArray *feats = @[@"unlock_own", @"unlock_lock", @"unlock_lock", @"unlock_lock", @"cb_free"];
+        NSArray *feats = @[@"unlock_own", @"cb_free"];
         NSArray *notes = @[
             @"把\"这歌我有没有\"的三层判定都当成立。归属由 cb 三清单(songlist/packlist/unlocks)+服务器授予共同决定，本项覆盖\"未授予但本地有内容\"的情形。",
-            @"Finale/Verdict 五曲的锁态覆盖为\"五难度全解\"（只影响列表锁标与可选性）。",
-            @"konzetsu(DO) 曲包同上；副作用：该包显示专属曲绘 jacket_locked_konzetsu。",
-            @"7.0 链系统总闸：官方要求推进终章链才放行；放行后 Finale 那批整表可玩（锁标与开局门都看它）。",
             @"内容包校验恒通过（文件哈希与三清单比对恒等），校验失败不清树。离线改谱面/删文件的前提。"];
         CGFloat bw = (W - cardPad * 2 - gap) / 2.0;
         int shown = 0;
-        for (int i = 0; i < 5; i++) {
+        for (NSUInteger i = 0; i < titles.count; i++) {
             if (!xrc_feature_present([feats[i] UTF8String])) continue;   // 本构建未含该功能
             XRCSwitchRow *row = [[XRCSwitchRow alloc] initWithTitle:titles[i]];
             row.note = notes[i];
-            BOOL fullRow = (shown == 4);   // 第 5 项整行宽
+            BOOL fullRow = NO;
             row.frame = fullRow ? CGRectMake(cardPad, cardPad + (shown / 2) * (rowH + gap),
                                              W - cardPad * 2, rowH)
                                 : CGRectMake(cardPad + (shown % 2) * (bw + gap),
@@ -518,10 +509,7 @@ static NSString *const kNoteDev =
             [c4 addSubview:row];
             switch (i) {
                 case 0: self.swOwn = row; break;
-                case 1: self.swFv = row; break;
-                case 2: self.swDo = row; break;
-                case 3: self.swGate = row; break;
-                case 4: self.swCb = row; break;
+                case 1: self.swCb = row; break;
             }
             shown++;
         }
@@ -529,7 +517,7 @@ static NSString *const kNoteDev =
         c4.frame = CGRectMake(x0, y, W, cardPad + rows * rowH + (rows - 1) * gap + cardPad);
         NSString *legend = @"长按任一项看该项说明。";
         y = [self note:[legend stringByAppendingString:
-                          @"\n拥有链=三层判定恒真｜FV/DO 锁=特殊曲包五难度全解｜链门=7.0 链系统总闸｜cb 自由化=校验恒通过且内容树保留。"]
+                          @"\n拥有链=三层判定恒真｜cb 自由化=校验恒通过且内容树保留。"]
                   afterCard:c4 x:x0 y:y w:W] + secGap;
     }
     }        // present>0
@@ -925,9 +913,6 @@ static NSString *const kNoteDev =
     } while (0)
 
 - (void)toggleOwn      { XRC_TOGGLE_SWITCH(unlock_own, xrc_brk_set_unlock_own, @"拥有链：三层恒真（覆盖未授予场景）", @"拥有链：恢复原判定"); }
-- (void)toggleFv       { XRC_TOGGLE_SWITCH(unlock_fv,  xrc_brk_set_unlock_fv,  @"FV 锁：五难度全解", @"FV 锁：恢复原判定"); }
-- (void)toggleDo       { XRC_TOGGLE_SWITCH(unlock_do,  xrc_brk_set_unlock_do,  @"DO 锁：五难度全解（显示专属曲绘）", @"DO 锁：恢复原判定"); }
-- (void)toggleGate     { XRC_TOGGLE_SWITCH(gate_open,  xrc_brk_set_gate_open,  @"链门：放行（整表解锁总闸）", @"链门：恢复原判定"); }
 - (void)toggleCb       { XRC_TOGGLE_SWITCH(cb_bypass,  xrc_brk_set_cb_bypass,  @"cb 自由化：校验恒通过 + 清树禁用", @"cb 校验：恢复原行为"); }
 - (void)toggleReplay   { XRC_TOGGLE_SWITCH(replay_arm, xrc_replay_set_enabled, @"回跳重播：开（回跳后重新游玩该段并清空分数记录）", @"回跳重播：关"); }
 
@@ -1156,9 +1141,6 @@ static NSString *const kNoteDev =
     if (!self.flowField.isFirstResponder && self.flowField.enabled)
         self.flowField.text = [NSString stringWithFormat:@"%.1f", xrc_flow_get()];
     self.swOwn.on      = xrc_brk_unlock_own();
-    self.swFv.on       = xrc_brk_unlock_fv();
-    self.swDo.on       = xrc_brk_unlock_do();
-    self.swGate.on     = xrc_brk_gate_open();
     self.swCb.on       = xrc_brk_cb_bypass();
     self.swNet.on      = xrc_net_enabled();
 
@@ -1191,7 +1173,7 @@ static NSString *const kNoteDev =
                            g_caps.stub_present, g_caps.stub_v2, g_caps.judge_handler_live,
                            g_caps.gp_hook_live, g_caps.mtp_hook_live];
     {
-        NSArray *all = @[@"unlock_own", @"unlock_lock", @"chain_guard",
+        NSArray *all = @[@"unlock_own", @"chain_guard",
                          @"cb_free", @"autoplay", @"applog_capture"];
         NSMutableArray *absent = [NSMutableArray array];
         for (NSString *ft in all)

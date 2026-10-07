@@ -182,8 +182,10 @@ void xrc_audio_speed_apply(double rate) {
         int32_t rc = p_add_dsp ? p_add_dsp(group, 0, s_dsp) : -1;
         xrc_logd(XRCLC_BOOT, @"[audio] 移调 DSP 挂载：group=%p rc=%d rate=%.3f ratio=%.3f rc_set=%d lat=%.1fms rc_pitch=%d",
                  group, rc, rate, pr, rc_set, s_dsp_lat_ms, rc_pitch);
-        s_dsp_group = group;
-        if (!xrc_gameplay_seek_active()) s_compensate(s_channel0(), rate);                // ③ 延迟补偿
+        if (rc == 0) {
+            s_dsp_group = group;
+            if (!xrc_gameplay_seek_active()) s_compensate(s_channel0(), rate);
+        }                // ③ 延迟补偿
     } else {
         xrc_logd(XRCLC_BOOT, @"[audio] 变速 rate=%.3f ratio=%.3f rc_set=%d rc_pitch=%d",
                  rate, pr, rc_set, rc_pitch);
@@ -218,4 +220,9 @@ NSString *xrc_audio_speed_status(void) {
             group ? @"✓" : @"—",
             s_dsp ? [NSString stringWithFormat:@"✓(type=%d lat=%.0fms)", s_dsp_type, s_dsp_lat_ms]
                   : (s_dsp_type == 0 && group ? @"未找到" : @"未挂")];
+}
+
+double xrc_audio_output_latency_ms(void) {
+    void *group = s_bgm_group();
+    return s_dsp && group && s_dsp_group == group ? (double)s_dsp_lat_ms : 0.0;
 }
