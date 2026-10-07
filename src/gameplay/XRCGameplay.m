@@ -139,8 +139,15 @@ static uint32_t s_seek_audio_target;
 static int32_t s_seek_offset, s_seek_previous;
 static uint64_t s_seek_started_us, s_seek_deadline_us, s_seek_sequence;
 static bool s_seek_force_replay;
+static bool s_seek_has_freeze;
 static uint64_t s_seek_result_sequence;
 static bool s_seek_result_success;
+// A completed seek must not turn its own transient error into new calibration.
+static void *s_sync_scene, *s_sync_ng, *s_sync_player;
+static int32_t s_sync_offset;
+static double s_sync_rate;
+static bool s_sync_music;
+static uint64_t s_sync_probe_until, s_sync_probe_last;
 
 uint64_t xrc_gameplay_seek_result(bool *success) {
     if (success) *success = s_seek_result_success;
@@ -166,10 +173,23 @@ static bool s_seek_context_valid(void *ng) {
 
 static void s_seek_finish(bool success) {
     if (!xrc_gameplay_seek_active()) return;
+    uint32_t audio = 0;
+    if (success && s_seek_context_valid(s_seek_ng) &&
+        xrc_player_read_position(s_seek_player, &audio)) {
+        xrc_clock_shift_to(s_seek_ng, xrc_seek_chart_target(audio, s_seek_offset));
+        xrc_logi(XRCLC_JUDGE, @"[seek-sync] #%llu final audio=%u chart=%d delta=%lld",
+                 s_seek_sequence, audio, xrc_chart_clock_ms(s_seek_ng),
+                 (int64_t)xrc_chart_clock_ms(s_seek_ng) - audio);
+    }
     s_seek_result_sequence = s_seek_sequence;
     s_seek_result_success = success;
-    xrc_clock_freeze_dec();
+    if (s_seek_has_freeze) {
+        xrc_clock_freeze_dec();
+        s_seek_has_freeze = false;
+    }
     atomic_store(&s_frz_state, XRC_FRZ_OFF);
+    s_sync_probe_until = xrc_real_now_us() + 2000000ULL;
+    s_sync_probe_last = 0;
     s_gp_last_real_us = 0;
     s_retime_rem_us = 0;
     s_retime_acc = 0;
@@ -182,7 +202,15 @@ static void s_seek_finish(bool success) {
 
 void xrc_freeze_end(void) {
     if (atomic_load(&s_frz_state) != XRC_FRZ_REBUILD) return;
-    // Replay completes synchronously on the game thread, before another seek can start.
+    // Let the native clock leave its frozen epoch BEFORE reconciliation. Otherwise
+    // the first resumed update adds rebuild elapsed time after our final alignment.
+    if (s_seek_has_freeze) {
+        xrc_clock_freeze_dec();
+        s_seek_has_freeze = false;
+    }
+    s_gp_last_real_us = 0;
+    s_retime_rem_us = 0;
+    s_retime_acc = 0;
     s_seek_deadline_us = xrc_real_now_us() + XRC_RESYNC_US;
     atomic_store(&s_frz_state, XRC_FRZ_RESYNC);
 }
@@ -243,7 +271,19 @@ static void s_exec_pending(void *self) {
     uint32_t length = xrc_player_song_length_ms();
     if (length && target >= length) target = length - 1;
     if (target > INT_MAX) target = INT_MAX;
-    int64_t offset = (int64_t)chart - audio;
+    int64_t measured = (int64_t)chart - audio;
+    double rate = xrc_clock_get_rate();
+    bool music = xrc_audio_speed_enabled();
+    if (s_sync_scene != self || s_sync_ng != ng || s_sync_player != player ||
+        s_sync_rate != rate || s_sync_music != music) {
+        if (measured < INT_MIN || measured > INT_MAX) return;
+        s_sync_scene = self; s_sync_ng = ng; s_sync_player = player;
+        s_sync_rate = rate; s_sync_music = music;
+        s_sync_offset = (int32_t)measured;
+    }
+    int64_t offset = s_sync_offset;
+    xrc_logi(XRCLC_JUDGE, @"[seek-sync] measured=%lld baseline=%d rate=%.3f music=%d",
+             measured, s_sync_offset, rate, music);
     atomic_store(&s_pending_op, XRC_OP_NONE);
     if (offset < INT_MIN || offset > INT_MAX) return;
     s_seek_scene = self; s_seek_ng = ng; s_seek_player = player;
@@ -252,6 +292,7 @@ static void s_exec_pending(void *self) {
     s_seek_started_us = now; s_seek_deadline_us = now + XRC_FRZ_MAX_US;
     ++s_seek_sequence;
     xrc_clock_freeze_inc();
+    s_seek_has_freeze = true;
     atomic_store(&s_frz_state, XRC_FRZ_FROZEN);
     // No chart write until the real channel acknowledges the new position.
     if (!xrc_player_seek_ms(player, target)) { s_seek_finish(false); return; }
@@ -400,7 +441,8 @@ void xrc_gameplay_update(void *self, uint64_t a2, uint64_t a3, uint64_t a4, uint
     if (self) {
         atomic_store(&xrc_gp_instance, self);
         void *note_group = *(void **)((char *)self + XRC_GP_NOTEGROUP_OFF);
-        s_frz_tick(note_group); // Cancel even when a new scene has no clock yet.
+        if (xrc_gameplay_seek_active() && !s_seek_context_valid(note_group))
+            s_seek_finish(false);
         if (note_group) {
             s_gp_retime_logic_clock(note_group);
             s_rate_probe_tick(note_group);      // 音画倍率自测（1 Hz，只读）
@@ -453,6 +495,22 @@ void xrc_gameplay_update(void *self, uint64_t a2, uint64_t a3, uint64_t a4, uint
     // 放这里是因为 gp.update 是唯一"进对局后每帧都在跑"的点，面板不开时也有效。
     @try { xrc_audio_speed_tick(); } @catch (NSException *e) {}
     if (s_orig_gp_update) s_orig_gp_update(self, a2, a3, a4, a5);
+    // Native update refreshes clock fields. Reconcile afterwards so those writes
+    // cannot undo the alignment in the same frame or add rebuild elapsed time.
+    if (self && atomic_load(&xrc_gp_instance) == self) {
+        void *ng = *(void **)((char *)self + XRC_GP_NOTEGROUP_OFF);
+        s_frz_tick(ng);
+        uint64_t now = xrc_real_now_us();
+        uint32_t audio = 0;
+        if (!xrc_gameplay_seek_active() && now < s_sync_probe_until &&
+            now - s_sync_probe_last >= 250000ULL && s_seek_context_valid(ng) &&
+            xrc_player_read_position(s_seek_player, &audio)) {
+            s_sync_probe_last = now;
+            xrc_logi(XRCLC_JUDGE, @"[seek-sync] #%llu post audio=%u chart=%d delta=%lld baseline=%d",
+                     s_seek_sequence, audio, xrc_chart_clock_ms(ng),
+                     (int64_t)xrc_chart_clock_ms(ng) - audio, s_sync_offset);
+        }
+    }
 }
 
 void xrc_gameplay_install_hooks(uint64_t image_base) {
