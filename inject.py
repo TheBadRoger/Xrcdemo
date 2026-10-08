@@ -146,6 +146,7 @@ BRK_HOOKS = [
 BRK_HOOKS += [
     ("timing_input", 0x10091F01C, 0x101468170, "1f010a6b"),
     ("timing_arc_input", 0x10091FCA8, 0x101468178, "3f01086b"),
+    ("adapt_window", 0x10091C51C, 0x101468188, "681640f9"),
     ("flow_ui", 0x100178C3C, 0x101468180, "1f01156b"),
 ]
 
@@ -169,7 +170,7 @@ FEATURES = [
      "7.0.256 离线挑战练习：下隐/变速/上下反/点血条/综合，下次开局生效"),
     ("judge_time_lock", ["timing_input", "timing_arc_input", "ap_note_win", "ap_arctap_win"], True, "stable",
      "锁定现实毫秒判定窗口，同步输入预筛选与音符过期窗口"),
-    ("note_flow", ["flow_ui"], True, "stable", "解除下落流速设置的 1.0–6.5 范围限制"),
+    ("rate_flow", ["adapt_window"], True, "experimental", "按倍率自动适应流速及显示窗口"),
     ("unlock_own",     ["unlock_l1", "unlock_l2", "unlock_l3"],                    False, "redundant",
      "拥有链三层：归属由 cb 三清单 + 服务器授予决定；本组覆盖服务器未授予而本地已有内容的场景"),
     ("chain_guard",    ["chain_prog"],                                             True,  "required",
@@ -220,7 +221,7 @@ def sites_for(feat_names):
         if n in feat_names:
             keep.update(sites)
     listed = {x for _n, ss, _r, _st, _no in FEATURES for x in ss}
-    retired = {"lock_fv", "lock_do", "fv_gate"}
+    retired = {"lock_fv", "lock_do", "fv_gate", "flow_ui"}
     keep.update(n for n, _s, _r, _e in BRK_HOOKS if n not in listed and n not in retired)
     return keep
 
@@ -969,9 +970,15 @@ def main():
             print("[!] new practice hooks require a rebuilt dylib with 'practice-timing v1'; refusing old artifacts")
             sys.exit(3)
 
-    if do_brk and "note_flow" in g_selected_features:
-        if b"practice-flow v2" not in plugin_bytes:
-            print("[!] native flow consumer patches require a rebuilt dylib with 'practice-flow v2'")
+    with open(MAIN, "rb") as handle:
+        adapt_main = handle.read()
+    adapt_base = fat_arm64_slice_offset(adapt_main)
+    adapt_existing = any(adapt_main[adapt_base + site - 0x100000000:
+                                   adapt_base + site - 0x100000000 + 4] == BRK_INSN
+                         for name, site, _replay, _expect in BRK_HOOKS if name == "adapt_window")
+    if (do_brk and "rate_flow" in g_selected_features) or adapt_existing:
+        if b"practice-adapt v1" not in plugin_bytes:
+            print("[!] rate adaptation hooks require a rebuilt dylib with 'practice-adapt v1'")
             sys.exit(3)
 
     # 配对校验（两条）：

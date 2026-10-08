@@ -17,6 +17,7 @@
 #include "XRCProbe.h"
 #include "XRCClock.h"
 #include "XRCAudio.h"   // 音乐变速：每帧去重 tick（rate/组变了才动手）
+#include "XRCRateAdapt.h"
 #include "XRCPlayer.h"
 #include "XRCReplay.h"
 #include "XRCSeekMath.h"
@@ -258,7 +259,7 @@ static void s_capture_sync_calibration(void *scene, void *ng) {
     if (chart < 0 || !xrc_player_read_position(player, &audio)) return;
     double rate = xrc_audio_speed_enabled() ? xrc_clock_get_rate() : 1.0;
     int32_t delay = xrc_seek_output_delay(rate, xrc_audio_output_latency_ms());
-    int64_t calibration = (int64_t)chart - audio + delay;
+    int64_t calibration = (int64_t)chart - audio + delay + xrc_rate_adapt_offset_extra(ng);
     if (calibration < INT_MIN || calibration > INT_MAX) return;
     s_sync_scene = scene; s_sync_ng = ng; s_sync_player = player;
     s_sync_offset = (int32_t)calibration; s_sync_have_calibration = true;
@@ -295,13 +296,13 @@ static void s_exec_pending(void *self) {
     double latency = xrc_audio_output_latency_ms();
     int32_t delay = xrc_seek_output_delay(audioRate, latency);
     if (!s_sync_have_calibration || s_sync_scene != self || s_sync_ng != ng || s_sync_player != player) {
-        int64_t calibration = measured + delay;
+        int64_t calibration = measured + delay + xrc_rate_adapt_offset_extra(ng);
         if (calibration < INT_MIN || calibration > INT_MAX) return;
         s_sync_scene = self; s_sync_ng = ng; s_sync_player = player;
         s_sync_offset = (int32_t)calibration;
         s_sync_have_calibration = true;
     }
-    int64_t offset = xrc_seek_calibrated_offset(s_sync_offset, delay);
+    int64_t offset = (int64_t)xrc_seek_calibrated_offset(s_sync_offset, delay) - xrc_rate_adapt_offset_extra(ng);
     xrc_logi(XRCLC_JUDGE, @"[seek-sync] measured=%lld calibration=%d outputDelay=%d baseline=%lld rate=%.3f music=%d",
              measured, s_sync_offset, delay, offset, rate, music);
     atomic_store(&s_pending_op, XRC_OP_NONE);
@@ -467,6 +468,7 @@ void xrc_gameplay_update(void *self, uint64_t a2, uint64_t a3, uint64_t a4, uint
         if (xrc_gameplay_seek_active() && !s_seek_context_valid(note_group))
             s_seek_finish(false);
         if (note_group) {
+            xrc_rate_adapt_frame_begin(self, note_group);
             s_gp_retime_logic_clock(note_group);
             s_rate_probe_tick(note_group);      // 音画倍率自测（1 Hz，只读）
             int32_t pos = xrc_chart_clock_ms(note_group);
@@ -522,6 +524,7 @@ void xrc_gameplay_update(void *self, uint64_t a2, uint64_t a3, uint64_t a4, uint
     // cannot undo the alignment in the same frame or add rebuild elapsed time.
     if (self && atomic_load(&xrc_gp_instance) == self) {
         void *ng = *(void **)((char *)self + XRC_GP_NOTEGROUP_OFF);
+        xrc_rate_adapt_frame_end(self, ng);
         s_capture_sync_calibration(self, ng);
         s_frz_tick(ng);
         uint64_t now = xrc_real_now_us();

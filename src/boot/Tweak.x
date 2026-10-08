@@ -28,7 +28,7 @@
 #include "XRCPlayer.h"
 #include "XRCGameplay.h"
 #include "XRCJudge.h"
-#include "XRCFlow.h"
+#include "XRCRateAdapt.h"
 #include "XRCKonzetsu.h"
 #include "XRCConfig.h"
 #include "XRCHook.h"
@@ -178,6 +178,7 @@ static void doBootstrap(void) {
         @try { xrc_brk_setup(base); }           @catch (NSException *e) { xrc_logw(XRCLC_BOOT, @"brk EX: %@", e); }
         xrc_apply_switches();   // 开关统一入口（%ctor 已调过一次；此处幂等刷新）
         xrc_konzetsu_tick();
+        xrc_rate_adapt_install();
         // 私服重定向：NSURLConnection 层改写 URL（不改 TLS；换域后 pin 自然放行）
         @try {
             xrc_net_install();
@@ -265,7 +266,6 @@ static void doBootstrap(void) {
             }
             }
 #endif
-            xrc_flow_tick();
             xrc_konzetsu_tick();
             void *p = xrc_player_get();
             if (xrc_player_detect_change(p)) {
@@ -280,7 +280,6 @@ static void doBootstrap(void) {
         [[NSRunLoop mainRunLoop] addTimer:xrc_tick forMode:NSRunLoopCommonModes];
         xrc_replay_start();   // 回跳重播引擎：常驻检出线程（落笔在主队列；总门由面板控制）
         xrc_logi(XRCLC_BOOT, @"practice-timing v1: real-time judgment lock / unrestricted note flow");
-        xrc_logi(XRCLC_BOOT, @"practice-flow v2: native consumer clamps removed; setter readback enabled");
 #if defined(XRC_GAME_VERSION_7_0_256)
         xrc_logi(XRCLC_BOOT, @"konzetsu-practice v1: any-song effects / per-load snapshot / independent challenge gauge");
 #endif
@@ -325,6 +324,8 @@ static void onAppLaunched(CFNotificationCenterRef center, void *observer,
 // 后台线程跑，因此 %ctor 即设好（doBootstrap 太晚）。%ctor 与 doBootstrap 都调用
 //（幂等，均为原子写）。
 static void xrc_apply_switches(void) {
+    xrc_rate_adapt_set_offset(g_cfg.rate_adapt_offset);
+    xrc_rate_adapt_set_flow(g_cfg.rate_adapt_flow);
     xrc_konzetsu_configure(g_cfg.konzetsu_id, g_cfg.konzetsu_enabled, g_cfg.konzetsu_challenge);
     @try {
         xrc_brk_set_unlock_own(g_cfg.unlock_own);
@@ -361,7 +362,6 @@ static void xrc_apply_switches(void) {
         xrc_judge_set_windows(g_cfg.judge_max_ms, g_cfg.judge_pure_ms,
                               g_cfg.judge_far_ms, g_cfg.judge_lost_ms);
         xrc_judge_set_time_lock(g_cfg.judge_time_lock);
-        if (g_cfg.note_flow > 0) xrc_flow_set(g_cfg.note_flow);
     } @catch (NSException *e) { xrc_logw(XRCLC_BOOT, @"judge setup EX: %@", e); }
     // BRK 桩：处理器安装 + **立即注册** —— cb 校验在 didFinishLaunching 之前就有后台
     // 线程命中；注册晚于命中 = 空表分发 → 崩。doBootstrap 里的 setup 为幂等刷新

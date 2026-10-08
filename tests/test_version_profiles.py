@@ -45,4 +45,4 @@ class VersionProfileTests(unittest.TestCase):
             self.assertEqual(len(replays), len(set(replays)))
             enabled, _ = inject.features_selected(["--profile", "release"])
             self.assertIn("judge_time_lock", enabled)
-            self.assertIn("note_flow", enabled)
+            self.assertIn("rate_flow", enabled)

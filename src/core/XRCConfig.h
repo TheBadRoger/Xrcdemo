@@ -15,7 +15,8 @@ typedef struct {
     int       judge_far_ms;
     int       judge_lost_ms;
     BOOL      judge_time_lock;
-    double    note_flow;    // 0 = retain game setting; positive values use native 0.1 steps
+    BOOL      rate_adapt_offset;
+    BOOL      rate_adapt_flow;
     int       konzetsu_id;  // panel choices 1,2,3,4,6
     BOOL      konzetsu_enabled;
     BOOL      konzetsu_challenge; // used only while effects are enabled

@@ -42,6 +42,7 @@
 #include "XRCProfile.h"
 #include "XRCJudge.h"   // autoplay 站点处理器复用 xrc_judge_autoplay/_pure
 #include "XRCKonzetsu.h"
+#include "XRCRateAdapt.h"
 #import "XRCLog.h"
 
 #if XRC_HAS_BRK_HOOK
@@ -441,19 +442,8 @@ static void s_timing_arc_input(void *vctx) {
     ss->__x[9] = (uint32_t)xrc_practice_bound(start, -xrc_judge_scaled_window(120));
 }
 static void s_flow_ui(void *vctx) {
-    ucontext_t *uc = (ucontext_t *)vctx;
-    if (!uc || !uc->uc_mcontext) return;
-    __typeof__(uc->uc_mcontext->__ss) *ss = &uc->uc_mcontext->__ss;
-    uint64_t base = atomic_load(&s_main_base);
-    if (!base) return;
-    uint64_t app = s_ap_ld64(base + XRC_OFF_APP_GLOBAL);
-    if (!s_ap_ptr_ok(app)) return;
-    uint64_t settings = s_ap_ld64(app + 112);
-    if (!s_ap_ptr_ok(settings)) return;
-    int32_t units = (int32_t)s_ap_ld32(settings + 12);
-    if (units < 1) return;
-    ss->__x[8] = (uint32_t)units;
-    ss->__x[11] = INT32_MAX;
+    // Preserve old prepared packages without retaining the manual speed override.
+    (void)vctx;
 }
 static void s_ap_arctap_win(void *vctx) { s_ap_window(vctx, 27, XRC_AP_ARCTAP_WIN_CONT_OFF, &s_ap_stat_win_tap); }
 
@@ -702,6 +692,7 @@ static void s_arc_hide_a(void *vctx) { s_arc_hide_x(vctx); }
 static void s_arc_hide_b(void *vctx) { s_arc_hide_x(vctx); }
 
 static const xrc_brk_entry_t k_brk_entries[] = {
+    { "adapt_window", XRC_BRK_ADAPT_WINDOW_SITE_OFF, XRC_BRK_ADAPT_WINDOW_REPLAY_OFF, xrc_rate_adapt_window },
 #if defined(XRC_GAME_VERSION_7_0_256)
     { "konzetsu_chart", 0x910CE0ULL, 0x146C188ULL, xrc_konzetsu_chart },
     { "konzetsu_id", 0xAB1DE8ULL, 0x146C190ULL, xrc_konzetsu_id },
@@ -909,7 +900,7 @@ static const xrc_feature_sites_t k_feature_sites[] = {
     { "konzetsu", { "konzetsu_chart", "konzetsu_id", "konzetsu_active",
                      "konzetsu_score", "konzetsu_hpbar", "konzetsu_info" }, 6 },
     { "judge_time_lock", { "timing_input", "timing_arc_input", "ap_note_win", "ap_arctap_win" }, 4 },
-    { "note_flow", { "flow_ui" }, 1 },
+    { "rate_flow", { "adapt_window" }, 1 },
     { "unlock_own",     { "unlock_l1", "unlock_l2", "unlock_l3" }, 3 },
     { "chain_guard",    { "chain_prog" }, 1 },
     { "cb_free",        { "cb_ready", "cb_filehash", "cb_listhash", "cb_wipe", "cb_dispatch" }, 5 },

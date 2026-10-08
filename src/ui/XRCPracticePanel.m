@@ -29,7 +29,7 @@
 #include "XRCStore.h"
 #include "XRCAudio.h"
 #include "XRCReplay.h"
-#include "XRCFlow.h"
+#include "XRCRateAdapt.h"
 #include "XRCKonzetsu.h"
 #include "XRCKonzetsuMath.h"
 #include "XRCPracticeMath.h"
@@ -83,8 +83,8 @@ static NSString *const kNoteDev =
 @property (nonatomic, strong) UILabel *timeLabel;
 @property (nonatomic, strong) UILabel *speedLabel;
 @property (nonatomic, strong) UISlider *speedSlider;
-@property (nonatomic, strong) UITextField *flowField;
-@property (nonatomic, strong) UIButton *flowApplyBtn;
+@property (nonatomic, strong) XRCSwitchRow *swRateOffset;
+@property (nonatomic, strong) XRCSwitchRow *swRateFlow;
 // 循环
 @property (nonatomic, strong) UIButton *fromBtn;
 @property (nonatomic, strong) UIButton *toBtn;
@@ -151,7 +151,8 @@ static NSString *const kNoteDev =
 - (void)toggleReplay;
 - (void)commitJudge;
 - (void)toggleJudgeTimeLock;
-- (void)commitFlow;
+- (void)toggleRateOffset;
+- (void)toggleRateFlow;
 - (void)toggleOwn;
 - (void)toggleAutoplay;
 - (void)toggleCb;
@@ -373,24 +374,18 @@ static NSString *const kNoteDev =
     [self.swReplay addTarget:self action:@selector(toggleReplay) forControlEvents:UIControlEventTouchUpInside];
     [c1 addSubview:self.swReplay];
 
-    CGFloat flowY = rowY + 2 * rowH + 26;
-    UILabel *flowTitle = [[UILabel alloc] initWithFrame:CGRectMake(cardPad, flowY, 76, rowH)];
-    flowTitle.text = @"下落流速";
-    flowTitle.textColor = UIColor.whiteColor;
-    flowTitle.font = [UIFont systemFontOfSize:12];
-    [c1 addSubview:flowTitle];
-    self.flowField = [[UITextField alloc] initWithFrame:CGRectMake(cardPad + 80, flowY, W - cardPad * 2 - 146, rowH)];
-    self.flowField.borderStyle = UITextBorderStyleRoundedRect;
-    self.flowField.keyboardType = UIKeyboardTypeDecimalPad;
-    self.flowField.font = [UIFont monospacedDigitSystemFontOfSize:12 weight:UIFontWeightRegular];
-    self.flowField.text = [NSString stringWithFormat:@"%.1f", xrc_flow_get()];
-    self.flowField.delegate = (id<UITextFieldDelegate>)self;
-    [c1 addSubview:self.flowField];
-    self.flowApplyBtn = [self makeActionButton:@"应用"];
-    self.flowApplyBtn.frame = CGRectMake(W - cardPad - 58, flowY, 58, rowH);
-    [self.flowApplyBtn addTarget:self action:@selector(commitFlow) forControlEvents:UIControlEventTouchUpInside];
-    [c1 addSubview:self.flowApplyBtn];
-    c1.frame = CGRectMake(x0, y, W, flowY + rowH + cardPad);
+    CGFloat adaptY = rowY + 2 * rowH + 26;
+    self.swRateOffset = [[XRCSwitchRow alloc] initWithTitle:@"倍率适应偏移"];
+    self.swRateOffset.note = @"内部偏移乘倍率，设置显示值不变；游玩中可切换，跳转期间暂缓。";
+    self.swRateOffset.frame = CGRectMake(cardPad, adaptY, W - cardPad * 2, rowH);
+    [self.swRateOffset addTarget:self action:@selector(toggleRateOffset) forControlEvents:UIControlEventTouchUpInside];
+    [c1 addSubview:self.swRateOffset];
+    self.swRateFlow = [[XRCSwitchRow alloc] initWithTitle:@"倍率适应流速"];
+    self.swRateFlow.note = @"内部流速乘倍率倒数，设置显示值不变；游玩中可切换。";
+    self.swRateFlow.frame = CGRectMake(cardPad, adaptY + rowH + 8, W - cardPad * 2, rowH);
+    [self.swRateFlow addTarget:self action:@selector(toggleRateFlow) forControlEvents:UIControlEventTouchUpInside];
+    [c1 addSubview:self.swRateFlow];
+    c1.frame = CGRectMake(x0, y, W, adaptY + 2 * rowH + 8 + cardPad);
     y = [self note:kNotePlayback afterCard:c1 x:x0 y:y w:W] + secGap;
 
     // ============ ② 循环 ============
@@ -910,26 +905,6 @@ static NSString *const kNoteDev =
     [self refresh];
 }
 
-- (void)commitFlow {
-    NSScanner *scanner = [NSScanner scannerWithString:self.flowField.text ?: @""];
-    double value = 0;
-    int32_t units;
-    if (![scanner scanDouble:&value] || !scanner.isAtEnd || !xrc_practice_flow_units(value, &units)) {
-        [WHToast showMessage:@"请输入有效流速，最小 0.1；按 0.1 步长保存" duration:1.8 finishHandler:^{}];
-        return;
-    }
-    if (!xrc_flow_set(value)) {
-        [WHToast showMessage:@"原生流速尚未应用，请查看 xrcdemo.log 的 [flow] 记录" duration:2.2 finishHandler:^{}];
-        return;
-    }
-    xrc_config_t cfg; xrc_config_load(&cfg);
-    cfg.note_flow = round(value * 10.0) / 10.0;
-    xrc_config_save(&cfg);
-    self.flowField.text = [NSString stringWithFormat:@"%.1f", cfg.note_flow];
-    [self.flowField resignFirstResponder];
-    [WHToast showMessage:@"下落流速已保存；下一次开局使用新值" duration:1.4 finishHandler:^{}];
-}
-
 - (void)toggleJudgeTimeLock {
     if (!xrc_judge_is_active() || !xrc_feature_complete("judge_time_lock")) return;
     xrc_config_t cfg; xrc_config_load(&cfg);
@@ -992,6 +967,8 @@ static NSString *const kNoteDev =
         [self refresh];                                                                 \
     } while (0)
 
+- (void)toggleRateOffset { XRC_TOGGLE_SWITCH(rate_adapt_offset, xrc_rate_adapt_set_offset, @"偏移适配：开，下个安全帧生效", @"偏移适配：关，恢复原偏移"); }
+- (void)toggleRateFlow { XRC_TOGGLE_SWITCH(rate_adapt_flow, xrc_rate_adapt_set_flow, @"流速适配：开，下个安全帧生效", @"流速适配：关，恢复原流速"); }
 - (void)toggleOwn      { XRC_TOGGLE_SWITCH(unlock_own, xrc_brk_set_unlock_own, @"拥有链：三层恒真（覆盖未授予场景）", @"拥有链：恢复原判定"); }
 - (void)toggleCb       { XRC_TOGGLE_SWITCH(cb_bypass,  xrc_brk_set_cb_bypass,  @"cb 自由化：校验恒通过 + 清树禁用", @"cb 校验：恢复原行为"); }
 - (void)toggleReplay   { XRC_TOGGLE_SWITCH(replay_arm, xrc_replay_set_enabled, @"回跳重播：开（回跳后重新游玩该段并清空分数记录）", @"回跳重播：关"); }
@@ -1226,9 +1203,10 @@ static NSString *const kNoteDev =
         ? @"已保存的设置在下一次加载谱面时应用。\n本局保持开局设置，原生重试可能沿用本局谱面。"
         : @"当前游戏或主程序未包含完整挑战练习桩。\n需使用 7.0.256 配套产物重新部署。";
     self.swJudgeTimeLock.enabled = xrc_judge_is_active() && xrc_feature_complete("judge_time_lock");
-    self.flowField.enabled = self.flowApplyBtn.enabled = xrc_feature_complete("note_flow");
-    if (!self.flowField.isFirstResponder && self.flowField.enabled)
-        self.flowField.text = [NSString stringWithFormat:@"%.1f", xrc_flow_get()];
+    self.swRateOffset.on = xrc_rate_adapt_offset_enabled();
+    self.swRateOffset.enabled = xrc_cap_gp();
+    self.swRateFlow.on = xrc_rate_adapt_flow_enabled();
+    self.swRateFlow.enabled = xrc_cap_gp() && xrc_rate_adapt_flow_available();
     self.swOwn.on      = xrc_brk_unlock_own();
     self.swCb.on       = xrc_brk_cb_bypass();
     self.swNet.on      = xrc_net_enabled();
