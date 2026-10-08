@@ -86,7 +86,7 @@ static void capture(uint64_t render) {
     for (size_t i=0;i<count;++i) {
         segment_t *s=&segments[i]; s->node=read64(begin+i*8); s->vtable=read64(s->node);
         uint8_t visible=0;
-        if (!s->vtable || !read_mem(s->node+0x2b4,s->original,sizeof(s->original)) ||
+        if (s->vtable!=xrc_image_base()+XRC_ARC_FLOW_SEGMENT_VPTR || !read_mem(s->node+0x2b4,s->original,sizeof(s->original)) ||
             !read_mem(s->node+0x1c1,&visible,1)) { free(segments); return; }
         for (size_t j=0;j<24;++j) if (!isfinite(s->original[j])) { free(segments); return; }
         s->visible=visible!=0;
@@ -102,7 +102,7 @@ void xrc_arc_flow_frame(void *scene,double factor,int chart_ms) {
         for (size_t i=0;i<s_count;++i) s_arcs[i].live=false;
         for (uint64_t p=begin;p<end;p+=8) capture(read64(p));
         s_registry_begin=begin; s_registry_end=end;
-        xrc_logd(XRCLC_BOOT,@"[flow-arc] snapshots=%zu segments=%zu",s_count,s_children);
+        xrc_logi(XRCLC_BOOT,@"[flow-arc] snapshots=%zu segments=%zu",s_count,s_children);
     }
     for (size_t i=0;i<s_count;++i) {
         arc_t *arc=&s_arcs[i];
