@@ -442,8 +442,17 @@ static void s_timing_arc_input(void *vctx) {
     ss->__x[9] = (uint32_t)xrc_practice_bound(start, -xrc_judge_scaled_window(120));
 }
 static void s_flow_ui(void *vctx) {
-    // Preserve old prepared packages without retaining the manual speed override.
-    (void)vctx;
+    ucontext_t *uc=vctx;
+    if (!uc || !uc->uc_mcontext) return;
+    uint64_t base=atomic_load(&s_main_base);
+    uint64_t app=base ? s_ap_ld64(base+XRC_OFF_APP_GLOBAL) : 0;
+    if (!s_ap_ptr_ok(app)) return;
+    uint64_t settings=s_ap_ld64(app+112);
+    if (!s_ap_ptr_ok(settings)) return;
+    int32_t units=(int32_t)s_ap_ld32(settings+12);
+    if (units<=0) return;
+    uc->uc_mcontext->__ss.__x[8]=(uint32_t)units;
+    uc->uc_mcontext->__ss.__x[11]=INT32_MAX;
 }
 static void s_ap_arctap_win(void *vctx) { s_ap_window(vctx, 27, XRC_AP_ARCTAP_WIN_CONT_OFF, &s_ap_stat_win_tap); }
 
@@ -692,6 +701,12 @@ static void s_arc_hide_a(void *vctx) { s_arc_hide_x(vctx); }
 static void s_arc_hide_b(void *vctx) { s_arc_hide_x(vctx); }
 
 static const xrc_brk_entry_t k_brk_entries[] = {
+    { "native_flow_note", XRC_NATIVE_FLOW_NOTE_SITE_OFF, XRC_NATIVE_FLOW_NOTE_REPLAY_OFF, xrc_rate_adapt_note },
+    { "native_flow_hold", XRC_NATIVE_FLOW_HOLD_SITE_OFF, XRC_NATIVE_FLOW_HOLD_REPLAY_OFF, xrc_rate_adapt_note },
+    { "native_flow_arc", XRC_NATIVE_FLOW_ARC_SITE_OFF, XRC_NATIVE_FLOW_ARC_REPLAY_OFF, xrc_rate_adapt_arc },
+    { "native_flow_lower", XRC_NATIVE_FLOW_LOWER_SITE_OFF, XRC_NATIVE_FLOW_LOWER_REPLAY_OFF, xrc_rate_adapt_lower },
+    { "native_flow_upper", XRC_NATIVE_FLOW_UPPER_SITE_OFF, XRC_NATIVE_FLOW_UPPER_REPLAY_OFF, xrc_rate_adapt_upper },
+    { "native_flow_future", XRC_NATIVE_FLOW_FUTURE_SITE_OFF, XRC_NATIVE_FLOW_FUTURE_REPLAY_OFF, xrc_rate_adapt_lower },
     { "adapt_window", XRC_BRK_ADAPT_WINDOW_SITE_OFF, XRC_BRK_ADAPT_WINDOW_REPLAY_OFF, xrc_rate_adapt_window },
 #if defined(XRC_GAME_VERSION_7_0_256)
     { "konzetsu_chart", 0x910CE0ULL, 0x146C188ULL, xrc_konzetsu_chart },
@@ -900,7 +915,7 @@ static const xrc_feature_sites_t k_feature_sites[] = {
     { "konzetsu", { "konzetsu_chart", "konzetsu_id", "konzetsu_active",
                      "konzetsu_score", "konzetsu_hpbar", "konzetsu_info" }, 6 },
     { "judge_time_lock", { "timing_input", "timing_arc_input", "ap_note_win", "ap_arctap_win" }, 4 },
-    { "rate_flow", { "adapt_window" }, 1 },
+    { "rate_flow", { "flow_ui", "native_flow_note", "native_flow_hold", "native_flow_arc", "native_flow_lower", "native_flow_upper", "native_flow_future" }, 7 },
     { "unlock_own",     { "unlock_l1", "unlock_l2", "unlock_l3" }, 3 },
     { "chain_guard",    { "chain_prog" }, 1 },
     { "cb_free",        { "cb_ready", "cb_filehash", "cb_listhash", "cb_wipe", "cb_dispatch" }, 5 },

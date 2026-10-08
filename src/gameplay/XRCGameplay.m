@@ -527,7 +527,9 @@ void xrc_gameplay_update(void *self, uint64_t a2, uint64_t a3, uint64_t a4, uint
     // 音乐变速：低频去重 tick —— 速度变了/换歌了/组刚建才动作。
     // 放这里是因为 gp.update 是唯一"进对局后每帧都在跑"的点，面板不开时也有效。
     @try { xrc_audio_speed_tick(); } @catch (NSException *e) {}
+    if (self) xrc_rate_adapt_native_begin(*(void **)((char *)self + XRC_GP_NOTEGROUP_OFF));
     if (s_orig_gp_update) s_orig_gp_update(self, a2, a3, a4, a5);
+    xrc_rate_adapt_frame_end(self, NULL);
     // Native update refreshes clock fields. Reconcile afterwards so those writes
     // cannot undo the alignment in the same frame or add rebuild elapsed time.
     if (self && atomic_load(&xrc_gp_instance) == self) {

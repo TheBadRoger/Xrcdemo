@@ -146,6 +146,12 @@ BRK_HOOKS = [
 BRK_HOOKS += [
     ("timing_input", 0x10091F01C, 0x101468170, "1f010a6b"),
     ("timing_arc_input", 0x10091FCA8, 0x101468178, "3f01086b"),
+    ("native_flow_note", 0x100863dfc, 0x101468190, "00b8a10e"),
+    ("native_flow_hold", 0x1008e494c, 0x101468198, "00b8a10e"),
+    ("native_flow_arc", 0x100187b64, 0x1014681a0, "21b8a10e"),
+    ("native_flow_lower", 0x10091c920, 0x1014681a8, "0800381e"),
+    ("native_flow_upper", 0x10091c934, 0x1014681b0, "0900381e"),
+    ("native_flow_future", 0x10091c948, 0x1014681b8, "0a00381e"),
     ("adapt_window", 0x10091C51C, 0x101468188, "681640f9"),
     ("flow_ui", 0x100178C3C, 0x101468180, "1f01156b"),
 ]
@@ -170,7 +176,7 @@ FEATURES = [
      "7.0.256 离线挑战练习：下隐/变速/上下反/点血条/综合，下次开局生效"),
     ("judge_time_lock", ["timing_input", "timing_arc_input", "ap_note_win", "ap_arctap_win"], True, "stable",
      "锁定现实毫秒判定窗口，同步输入预筛选与音符过期窗口"),
-    ("rate_flow", ["adapt_window"], True, "experimental", "按倍率自动适应流速及显示窗口"),
+    ("rate_flow", ["flow_ui", "native_flow_note", "native_flow_hold", "native_flow_arc", "native_flow_lower", "native_flow_upper", "native_flow_future"], True, "experimental", "原生实时流速与倍率补偿；不修改节点缩放或显示阈值"),
     ("unlock_own",     ["unlock_l1", "unlock_l2", "unlock_l3"],                    False, "redundant",
      "拥有链三层：归属由 cb 三清单 + 服务器授予决定；本组覆盖服务器未授予而本地已有内容的场景"),
     ("chain_guard",    ["chain_prog"],                                             True,  "required",
@@ -221,7 +227,7 @@ def sites_for(feat_names):
         if n in feat_names:
             keep.update(sites)
     listed = {x for _n, ss, _r, _st, _no in FEATURES for x in ss}
-    retired = {"lock_fv", "lock_do", "fv_gate", "flow_ui"}
+    retired = {"lock_fv", "lock_do", "fv_gate", "adapt_window"}
     keep.update(n for n, _s, _r, _e in BRK_HOOKS if n not in listed and n not in retired)
     return keep
 
@@ -981,6 +987,14 @@ def main():
             print("[!] rate adaptation hooks require a rebuilt dylib with 'practice-adapt v1'")
             sys.exit(3)
 
+    native_flow_existing = any(adapt_main[adapt_base + site - 0x100000000:
+                                          adapt_base + site - 0x100000000 + 4] == BRK_INSN
+                               for name, site, _replay, _expect in BRK_HOOKS if name.startswith("native_flow_"))
+    if (do_brk and "rate_flow" in g_selected_features) or native_flow_existing:
+        if b"practice-native-flow v1" not in plugin_bytes:
+            print("[!] native flow sites require a rebuilt dylib with 'practice-native-flow v1'")
+            sys.exit(3)
+
     # 配对校验（两条）：
     #   ① autoplay 桩（ap_*）需要 dylib 侧处理器（"autoplay-eve v1"）；
     #   ② 链进度桩（chain_prog）需要 "chain-guard v1"。
@@ -1057,7 +1071,7 @@ def main():
         print("[i] brk hook patched — re-sign the app before installing")
 
     try:
-        for line in patch_flow_runtime(data, do_brk and "note_flow" in g_selected_features):
+        for line in patch_flow_runtime(data, do_brk and "rate_flow" in g_selected_features):
             print(f"[+] {line}")
     except RuntimeError as e:
         print(f"[!] {e}")
@@ -1106,7 +1120,7 @@ def main():
             "judge_stub_v2": bool(do_stub),
             "brk_hooks": bool(do_brk),
             "gate_patches": bool(do_gates),
-            "note_flow_runtime": bool(do_brk and "note_flow" in g_selected_features),
+            "note_flow_runtime": bool(do_brk and "rate_flow" in g_selected_features),
         },
         "features_desc": g_features_desc if do_brk else None,
         "features": [{"name": n, "status": st, "note": note,

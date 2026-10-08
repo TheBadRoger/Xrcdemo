@@ -408,7 +408,7 @@ static NSString *const kNoteDev =
     self.flowField.borderStyle = UITextBorderStyleRoundedRect;
     self.flowField.keyboardType = UIKeyboardTypeDecimalPad;
     self.flowField.font = [UIFont monospacedDigitSystemFontOfSize:12 weight:UIFontWeightRegular];
-    self.flowField.placeholder = @"0.1–2147483647";
+    self.flowField.placeholder = @"0.1–214748364.7";
     [c1 addSubview:self.flowField];
     self.flowApplyBtn = [self makeActionButton:@"设置"];
     self.flowApplyBtn.frame = CGRectMake(W - cardPad - 122, flowY + 20, 58, rowH);
@@ -939,16 +939,19 @@ static NSString *const kNoteDev =
     NSScanner *scanner = [NSScanner scannerWithString:text ?: @""];
     double speed = 0; uint64_t units = 0;
     if (![scanner scanDouble:&speed] || !scanner.isAtEnd || !xrc_live_flow_units(speed, &units)) {
-        [WHToast showMessage:@"请输入 0.1–2147483647 的流速；保留一位小数" duration:1.8 finishHandler:^{}];
+        [WHToast showMessage:@"请输入 0.1–214748364.7 的流速；保留一位小数" duration:1.8 finishHandler:^{}];
         return;
     }
-    if (!xrc_rate_adapt_set_manual_flow(speed)) return;
+    if (!xrc_rate_adapt_set_manual_flow(speed)) {
+        [WHToast showMessage:@"原生流速写入未确认，请查看 [flow-native] 日志" duration:1.8 finishHandler:^{}];
+        return;
+    }
     xrc_config_t config; xrc_config_load(&config);
     config.manual_note_flow = xrc_rate_adapt_manual_flow();
     xrc_config_save(&config);
     [self.flowField resignFirstResponder];
     [self refresh];
-    [WHToast showMessage:@"流速已设置，下一安全帧应用；无需重新开局" duration:1.6 finishHandler:^{}];
+    [WHToast showMessage:@"流速已写入游戏设置；本局下一安全帧应用" duration:1.6 finishHandler:^{}];
 }
 - (void)restoreNativeFlow {
     xrc_rate_adapt_set_manual_flow(0);
@@ -957,7 +960,7 @@ static NSString *const kNoteDev =
     xrc_config_save(&config);
     [self.flowField resignFirstResponder];
     [self refresh];
-    [WHToast showMessage:@"恢复原生流速；倍率适配开关保持原状态" duration:1.6 finishHandler:^{}];
+    [WHToast showMessage:@"取消插件覆盖，沿用当前游戏流速" duration:1.6 finishHandler:^{}];
 }
 
 - (void)toggleJudgeTimeLock {
@@ -1265,7 +1268,7 @@ static NSString *const kNoteDev =
     self.swRateFlow.enabled = xrc_cap_gp() && xrc_rate_adapt_flow_available();
     self.flowField.enabled = self.flowApplyBtn.enabled = self.flowNativeBtn.enabled = xrc_cap_gp() && xrc_rate_adapt_flow_available();
     if (!self.flowField.isFirstResponder) {
-        double flow = xrc_rate_adapt_manual_flow();
+        double flow = xrc_rate_adapt_native_flow();
         self.flowField.text = flow > 0 ? [NSString stringWithFormat:@"%.1f", flow] : @"";
     }
     self.swOwn.on      = xrc_brk_unlock_own();

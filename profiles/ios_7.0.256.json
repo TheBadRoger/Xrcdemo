@@ -250,6 +250,42 @@
       "0x10091e620",
       "0x10146c1b8",
       "681640f9"
+    ],
+    [
+      "native_flow_note",
+      "0x100865b50",
+      "0x10146c1c0",
+      "00b8a10e"
+    ],
+    [
+      "native_flow_hold",
+      "0x1008e66d0",
+      "0x10146c1c8",
+      "00b8a10e"
+    ],
+    [
+      "native_flow_arc",
+      "0x1001898b8",
+      "0x10146c1d0",
+      "21b8a10e"
+    ],
+    [
+      "native_flow_lower",
+      "0x10091ea24",
+      "0x10146c1d8",
+      "0800381e"
+    ],
+    [
+      "native_flow_upper",
+      "0x10091ea38",
+      "0x10146c1e0",
+      "0900381e"
+    ],
+    [
+      "native_flow_future",
+      "0x10091ea4c",
+      "0x10146c1e8",
+      "0a00381e"
     ]
   ],
   "restore_sites": [

@@ -203,6 +203,7 @@ static void doBootstrap(void) {
         //（player 变化检测与位置兜底失效），挂 common modes 才能全程跑。
         NSTimer *xrc_tick = [NSTimer timerWithTimeInterval:0.5 repeats:YES block:^(NSTimer *t) {
             [button refreshVisibility];
+            xrc_rate_adapt_native_tick();
 #if XRC_DEBUG_BUILD
             // applog 采集（开发构建）：日志档位 = 详细 且类别含 om 时落盘。
             if ((xrc_log_cats() & XRCLC_OM) && xrc_log_level() >= XRCLL_DEBUG) {

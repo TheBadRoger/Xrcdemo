@@ -7,7 +7,6 @@ int main(void) {
         assert(fabs(xrc_adapt_flow_factor(r,true)*r-1)<1e-8);
         assert(fabs((100+xrc_adapt_offset_extra(100,r,true))/r-100)<1e-8);
         assert(fabs((-100+xrc_adapt_offset_extra(-100,r,true))/r+100)<1e-8);
-        assert(xrc_adapt_window_units(700,(uint32_t)(r*1000))==xrc_adapt_window(700,r));
         assert(xrc_adapt_offset_extra(100,r,false)==0);
     }
     int32_t base=147, old=0;
@@ -21,17 +20,14 @@ int main(void) {
     }
     assert(xrc_adapt_add(base,-old)==147);
     assert(xrc_adapt_flow_factor(NAN,true)==1);
-    assert(xrc_adapt_window_units(INT_MAX,4000)==INT_MAX);
-    assert(xrc_adapt_window_units(1,10)==1);
     assert(xrc_adapt_add(INT_MAX,100)==INT_MAX);
-    assert(xrc_adapt_same_scale(2.0f,2.000001f));
-    assert(!xrc_adapt_same_scale(NAN,1));
     uint64_t units = 0;
-    assert(xrc_live_flow_units(2147483647.0,&units));
-    assert(units==21474836470ULL);
+    assert(xrc_live_flow_units(214748364.7,&units));
+    assert(units==2147483647ULL);
     assert(xrc_live_flow_units(0.1,&units) && units==1);
     assert(xrc_live_flow_units(8.04,&units) && units==80);
-    assert(!xrc_live_flow_units(2147483647.1,&units));
+    assert(!xrc_live_flow_units(214748364.8,&units));
+    assert(!xrc_live_flow_units(2147483647.0,&units));
     assert(!xrc_live_flow_units(INFINITY,&units));
     assert(!xrc_live_flow_units(NAN,&units));
     assert(!xrc_live_flow_units(0,&units));
@@ -42,18 +38,21 @@ int main(void) {
     assert(xrc_live_flow_factor(5,0,0.5,true)==2);
     for (unsigned i=0;i<sizeof(rates)/sizeof(rates[0]);++i) {
         double scale=xrc_live_flow_factor(5,10,rates[i],true);
-        int window=xrc_live_window(700,xrc_live_window_factor(scale));
-        assert(fabs(window*scale-700)<=scale);
+        assert(fabs(xrc_native_flow_distance(100,scale)*rates[i]-200)<1e-4);
+        // 5 at .5x must behave as internal 10, preserving real-time velocity.
+        assert(fabs(5*xrc_live_flow_factor(5,5,rates[i],true)*rates[i]-5)<1e-8);
+        assert(fabs(xrc_native_flow_distance(-100,scale)+100*scale)<1e-4);
     }
-    double huge=xrc_live_flow_factor(0.1,INT32_MAX,0.01,true);
+    double huge=xrc_live_flow_factor(0.1,INT32_MAX/10.0,0.01,true);
     assert(isfinite((float)huge));
-    assert(xrc_live_window(700,xrc_live_window_factor(huge))==1);
-    double tiny=xrc_live_flow_factor(INT32_MAX,0.1,4,true);
-    assert(xrc_live_window(INT32_MAX,xrc_live_window_factor(tiny))==INT32_MAX);
-    assert(xrc_live_window(700,UINT64_MAX)==INT32_MAX);
-    assert(xrc_live_window(INT32_MAX,XRC_FLOW_WINDOW_DENOM)==INT32_MAX);
-    // Small scales must still respond to changes; absolute epsilon would hide them.
-    assert(!xrc_adapt_same_scale(1e-10f,2e-10f));
+    assert(xrc_native_flow_distance(700,huge)==2147483520.0f);
+    assert(xrc_native_flow_distance(-700,huge)==-2147483648.0f);
+    assert(xrc_native_flow_candidate(10,700,1,false,-20,20)==10);
+    assert(xrc_native_flow_candidate(10,700,2,false,-20,20)==10);
+    assert(fabs(xrc_native_flow_candidate(10,700,.5,false,-20,20)-9.93)<1e-5);
+    assert(fabs(xrc_native_flow_candidate(10,700,.5,true,-20,20)-10.07)<1e-5);
+    assert(xrc_native_flow_candidate(0,700,1e-10,false,-20,20)==-20);
+    assert(xrc_native_flow_candidate(0,700,1e-10,true,-20,20)==20);
     // Always compute from native baseline, never multiply the previous result.
     float native=1;
     for (int i=0;i<100;++i) {
