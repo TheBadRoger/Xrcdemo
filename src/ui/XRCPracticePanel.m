@@ -2,7 +2,7 @@
 // XRCPracticePanel.m — 练习面板（v3）。
 // 设计稿：ui-mock/panel_mock.html（v3）。结构：
 //   固定标题栏（拖动 + ⓘ说明 + ✕；标题=版本号）+ 可滚动内容区（上限 72% 屏高）；分区 =
-//   播放（时间轴/±5s/速度/音乐变速/回跳重播）｜循环（设 A/B + 开关 + 重置）
+//   播放（时间轴/±5s/速度/音乐变速/重置成绩）｜循环（设 A/B + 开关 + 重置）
 //   ｜判定窗口（四档 + 应用 + 自动演奏）｜解锁（构建期功能集逐项显隐）｜网络（私域改写，地址折叠）
 //   ｜存储（cb 外置）｜诊断（状态两行 + 开发构建专属工具区）。
 // 交互约定（与设计稿对齐）：开关=「名称+状态点」（XRCSwitchRow，tone 控色）；
@@ -42,15 +42,15 @@ static NSString *const kNotePlayback =
     @"时间轴拖动=跳转；−5s/+5s 按当前速度缩放（5000×speed）；滑杆=速度。\n"
     @"音乐变速=让 BGM 跟着速度走并保持音高（FMOD 通道速率 + 内置移调 DSP 补偿延迟）；"
     @"关掉则只改谱面时钟，速度快时音画会逐渐错开。\n"
-    @"回跳重播=回跳到已游玩并判定过的谱面段落时，支持重新游玩该段，同时清空分数记录。";
+    @"每次回拖都会恢复音符。重置成绩=开启时回拖清空成绩，关闭时保留成绩。";
 static NSString *const kNoteLoop =
     @"设起点 A=把当前位置记为 A；设终点 B=把当前位置记为 B（需 >A+1s）；循环开=播放到 B 自动回 A。";
 static NSString *const kNoteJudge =
     @"四档 ±ms 阈值，只改本地判定宽容度，不动谱面；数值需递增（提交时自动夹取）。\n"
     @"锁定判定区间=变速时保持现实毫秒窗口；关闭则窗口随播放倍率变化。\n"
     @"自动演奏=所有判定强制 Pure（含漏扫路径），演示/练习用。";
-static NSString *const kNoteReplay =
-    @"回跳到已游玩并判定过的谱面段落时，支持重新游玩该段，同时清空分数记录。";
+static NSString *const kNoteResetScore =
+    @"每次回拖都会恢复音符。开启：回拖时重置成绩；关闭：保留成绩。循环回位遵循同一设置。";
 static NSString *const kNoteNet =
     @"只改 API 请求的域名（路径与参数原样、不动 TLS）；关掉走官方域。";
 static NSString *const kNoteStore =
@@ -80,7 +80,7 @@ static NSString *const kNoteDev =
 // 播放
 @property (nonatomic, strong) XRCTimelineView *timeline;
 @property (nonatomic, strong) XRCSwitchRow *swSpeedAudio;
-@property (nonatomic, strong) XRCSwitchRow *swReplay;
+@property (nonatomic, strong) XRCSwitchRow *swResetScore;
 @property (nonatomic, strong) UILabel *timeLabel;
 @property (nonatomic, strong) UILabel *speedLabel;
 @property (nonatomic, strong) UISlider *speedSlider;
@@ -156,7 +156,7 @@ static NSString *const kNoteDev =
 - (void)speedChanged:(UISlider *)s;
 - (void)speedCommit:(UISlider *)s;
 - (void)toggleSpeedAudio;
-- (void)toggleReplay;
+- (void)toggleResetScore;
 - (void)commitJudge;
 - (void)toggleJudgeTimeLock;
 - (void)toggleRateOffset;
@@ -314,7 +314,7 @@ static NSString *const kNoteDev =
     CGFloat y = 6;
     __weak typeof(self) weakSelf = self;
 
-    // ============ ① 播放（含回跳重播） ============
+    // ============ ① 播放（含重置成绩） ============
     [self sectionLabel:@"播放" hint:@"拖动时间轴 = 跳转" x:x0 y:y w:W];
     y += secH + 4;
     UIView *c1 = [self cardAt:x0 y:y w:W];
@@ -372,15 +372,15 @@ static NSString *const kNoteDev =
     sep.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.06];
     [c1 addSubview:sep];
 
-    self.swReplay = [[XRCSwitchRow alloc] initWithTitle:@"回跳重播"];
-    self.swReplay.note = kNoteReplay;
+    self.swResetScore = [[XRCSwitchRow alloc] initWithTitle:@"重置成绩"];
+    self.swResetScore.note = kNoteResetScore;
     {
         xrc_config_t c; xrc_config_load(&c);
-        self.swReplay.on = c.replay_arm;
+        self.swResetScore.on = c.reset_score;
     }
-    self.swReplay.frame = CGRectMake(cardPad, rowY + rowH + 17, W - cardPad * 2, rowH);
-    [self.swReplay addTarget:self action:@selector(toggleReplay) forControlEvents:UIControlEventTouchUpInside];
-    [c1 addSubview:self.swReplay];
+    self.swResetScore.frame = CGRectMake(cardPad, rowY + rowH + 17, W - cardPad * 2, rowH);
+    [self.swResetScore addTarget:self action:@selector(toggleResetScore) forControlEvents:UIControlEventTouchUpInside];
+    [c1 addSubview:self.swResetScore];
 
     CGFloat adaptY = rowY + 2 * rowH + 26;
     self.swRateOffset = [[XRCSwitchRow alloc] initWithTitle:@"倍率适应偏移"];
@@ -1030,7 +1030,7 @@ static NSString *const kNoteDev =
 - (void)toggleRateFlow { XRC_TOGGLE_SWITCH(rate_adapt_flow, xrc_rate_adapt_set_flow, @"流速适配：开，下个安全帧生效", @"流速适配：关，恢复原流速"); }
 - (void)toggleOwn      { XRC_TOGGLE_SWITCH(unlock_own, xrc_brk_set_unlock_own, @"拥有链：三层恒真（覆盖未授予场景）", @"拥有链：恢复原判定"); }
 - (void)toggleCb       { XRC_TOGGLE_SWITCH(cb_bypass,  xrc_brk_set_cb_bypass,  @"cb 自由化：校验恒通过 + 清树禁用", @"cb 校验：恢复原行为"); }
-- (void)toggleReplay   { XRC_TOGGLE_SWITCH(replay_arm, xrc_replay_set_enabled, @"回跳重播：开（回跳后重新游玩该段并清空分数记录）", @"回跳重播：关"); }
+- (void)toggleResetScore   { XRC_TOGGLE_SWITCH(reset_score, xrc_replay_set_reset_score, @"回拖时重置成绩", @"回拖时保留成绩"); }
 
 // 自动演奏：走判定链（不依赖补丁站点集之外的开关组）
 - (void)toggleAutoplay {
@@ -1249,7 +1249,7 @@ static NSString *const kNoteDev =
                                   : (self.pendingTo ? @"设终点 B（播放中）" : @"设终点 B"))
                 forState:UIControlStateNormal];
 
-    self.swReplay.on     = xrc_replay_enabled();
+    self.swResetScore.on     = xrc_replay_reset_score_enabled();
     self.swAutoplay.on   = xrc_judge_autoplay();
     self.swJudgeTimeLock.on = xrc_judge_time_lock();
     xrc_config_t kc; xrc_config_load(&kc);

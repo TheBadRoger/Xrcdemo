@@ -72,8 +72,8 @@ static void s_ensure_defaults(NSMutableDictionary *p) {
     if (!p[@"autoplay"])   p[@"autoplay"]   = @NO;
     // 音乐变速：默认开（rate=1 时完全惰性）
     if (!p[@"speedAudio"]) p[@"speedAudio"] = @YES;
-    // 回跳重播 / 观测桩轻量：默认关（观测桩轻量为开发构建专用）
-    if (!p[@"replayArm"])  p[@"replayArm"]  = @NO;
+    // 回拖默认保留成绩；迁移旧回跳重播设置。观测桩轻量默认关。
+    if (!p[@"resetScore"]) p[@"resetScore"] = p[@"replayArm"] ?: @NO;
     if (!p[@"stubsLite"])  p[@"stubsLite"]  = @NO;
     // 日志档位：缺省 INFO + 全部类别（面板可改，持久化到本 plist）
     if (!p[@"logLevel"])   p[@"logLevel"]   = @2;
@@ -155,7 +155,7 @@ void xrc_config_load(xrc_config_t *out) {
     out->external_cb    = [prefs[@"externalCb"] boolValue];
     out->autoplay       = [prefs[@"autoplay"] boolValue];
     out->speed_audio    = [prefs[@"speedAudio"] boolValue];
-    out->replay_arm     = [prefs[@"replayArm"] boolValue];
+    out->reset_score    = [prefs[@"resetScore"] boolValue];
     out->stubs_lite     = [prefs[@"stubsLite"] boolValue];
     out->log_level      = [prefs[@"logLevel"] intValue];
     out->log_cats       = [prefs[@"logCats"] intValue];
@@ -187,7 +187,7 @@ void xrc_config_save(const xrc_config_t *c) {
     p[@"externalCb"]    = @(c->external_cb);
     p[@"autoplay"]      = @(c->autoplay);
     p[@"speedAudio"]    = @(c->speed_audio);
-    p[@"replayArm"]     = @(c->replay_arm);
+    p[@"resetScore"]    = @(c->reset_score);
     p[@"stubsLite"]     = @(c->stubs_lite);
     p[@"logLevel"]      = @(c->log_level);
     p[@"logCats"]       = @(c->log_cats);

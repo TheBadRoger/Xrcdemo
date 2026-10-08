@@ -236,7 +236,7 @@ extern void xrc_ap_latch_reset(void);     // XRCHook 导出
 extern void xrc_freeze_end(void);         // XRCGameplay 导出
 
 // ---- 开关与状态（默认 = 已验证配置） ----
-static int s_arm_on;                              /* 回跳重播总门（xrc_replay_set_enabled 控制） */
+static int s_reset_score;                         /* 只控制清分；音符恢复始终执行 */
 static int s_no_gate, s_no_pred, s_no_score;      /* 子项断流开关（0 = 执行） */
 static int s_rebuild_on = 1;                      /* 渲染重建：弧/长条回跳显示的正解（默认开） */
 static int s_do_write = 1;                        /* 落笔（默认开；置 0 = 只读诊断） */
@@ -1225,10 +1225,6 @@ static void rpf_revive(uint64_t ng, uint32_t T, uint32_t P, int do_write,
     {
         uint64_t scene = xrc_gameplay_instance();
         if (s_reg_pend_n > 0) rpf_revive_dispatch(scene, s_reg_pend_n);
-        /* 把**全量**音符交给渲染工厂重建渲染对象（开关默认关，见 rpf_rebuild_main 长注释）。
-           顺序：主队列 FIFO ⇒ 登记先、重建后 */
-        if (s_do_write && s_rebuild_on && s_rb_pend_n > 0)
-            rpf_rebuild_dispatch(scene, s_rb_pend_n);
         *n_reg = s_reg_pend_n;   /* 报告**实际派发**的登记条数 */
     }
 }
@@ -1239,9 +1235,9 @@ static void rpf_reset(uint64_t ng, uint32_t T, uint32_t P) {
     xrc_logd(XRCLC_JUDGE, @"[rpf] ⟲⟲⟲ 回跳重置 #%d：T=%u P=%u（**落笔=%s** 闸门=%s 清消费=%s 清分=%s）",
            s_rst_seq, T, P,
            s_do_write ? "ON" : "OFF(readonly)",
-           s_no_gate ? "OFF" : "ON", s_no_pred ? "OFF" : "ON", s_no_score ? "OFF" : "ON");
+           s_no_gate ? "OFF" : "ON", s_no_pred ? "OFF" : "ON", (s_no_score || !s_reset_score) ? "OFF" : "ON");
 
-    if (!s_no_score) rpf_score_reset(ng, T);
+    if (s_reset_score && !s_no_score) rpf_score_reset(ng, T);
     if (s_do_write) { rpf_tree_check(ng, "清分后"); }
     rpf_cmap_stage(ng, "清分后");      /* 谱面表（chart+0x80）在这一刻是否还健康 */
 
@@ -1350,6 +1346,12 @@ static void rpf_reset(uint64_t ng, uint32_t T, uint32_t P) {
         xrc_logd(XRCLC_JUDGE, @"[rpf] ⟲⟲⟲ 自检·map 起点：tmin=%d tmax=%d（T=%u）",
                v.tmin, v.tmax, T);
     }
+    // Main-thread dispatch executes inline. Build only after touch state, bucket
+    // visibility and admission gates have all been restored; the factory must
+    // not observe consumed state from the previous playback. This also keeps
+    // the freeze active through the entire reset, including line reconstruction.
+    if (s_do_write && s_rebuild_on && s_rb_pend_n > 0)
+        rpf_rebuild_dispatch(xrc_gameplay_instance(), s_rb_pend_n);
 }
 
 // ================================================================ 谱面表看门狗
@@ -1526,9 +1528,9 @@ static void rpf_reset_dispatch(uint64_t ng, uint32_t T, uint32_t P) {
     else dispatch_async_f(dispatch_get_main_queue(), j, rpf_reset_main);
 }
 
-void xrc_replay_seek(uint64_t scene, uint32_t target, uint32_t previous, bool force) {
+void xrc_replay_seek(uint64_t scene, uint32_t target, uint32_t previous) {
     if (![NSThread isMainThread] || scene != xrc_gameplay_instance() ||
-        (!s_arm_on && !force) || target >= previous) return;
+        target >= previous) return;
     uint64_t ng = 0;
     if (!rd(scene + RPF_NOTEGRP, &ng, 8) || !s_ishp(ng)) return;
     // Consume this rewind explicitly; the watcher must not issue a duplicate reset.
@@ -1654,18 +1656,18 @@ static void rpf_fast_tick(void) {
                        dwm, dnow, dwm - dnow, s_ng_stable);
                 s_seek_wm = now;
                 /* 回跳窗口内把弧分段的「藏」反过来（dylib 桩），涨回旧水位自动关。
-                   与重置同门控：replay_arm 不在时整体不介入。 */
+                   音符恢复与成绩开关独立，每次回退都介入。 */
                 /* 重建开启时**不反着改可见性** —— 引擎逐帧把"头之后"的分段藏掉是
                    *正常裁剪*（弧该停在判定线），把 W1 改成 1 等于把它留住 ⇒ 弧穿透判定线。 */
-                if (s_arm_on && !s_rebuild_on) rpf_nohide_begin((uint32_t)dwm);
+                if (!s_rebuild_on) rpf_nohide_begin((uint32_t)dwm);
                 // **引擎状态重置**（三笔写 + 自检）。这是全部动作的唯一入口。
                 // 只做"清零 + 开闸门"，不重建任何对象、不释放任何东西、不碰节点树。
                 // **主队列执行**（探针线程只检出，不落笔）—— 见 rpf_reset_dispatch 上方注释。
-                if (s_arm_on && dnow >= 0 && dnow < 3600000) {
+                if (dnow >= 0 && dnow < 3600000) {
                     xrc_logd(XRCLC_JUDGE, @"[rpf] ⟲ 重置派发到主队列：T=%d P=%d（探针线程只检出）", dnow, dwm);
                     rpf_reset_dispatch(ng, (uint32_t)dnow, (uint32_t)dwm);
                 }
-                else if (s_arm_on)
+                else
                     xrc_logd(XRCLC_JUDGE, @"[rpf] ⟲⟲⟲ 跳过重置：now=%d 不在 [0,3600000)", dnow);
             } else if (dnow > (int32_t)s_seek_wm) {
                 s_seek_wm = now;
@@ -1697,6 +1699,6 @@ void xrc_replay_start(void) {
         xrc_logw(XRCLC_JUDGE, @"[rpf] 常驻线程创建失败；回跳重播不可用");
 }
 
-void xrc_replay_set_enabled(bool on) { s_arm_on = on ? 1 : 0; }
-bool xrc_replay_enabled(void) { return s_arm_on != 0; }
+void xrc_replay_set_reset_score(bool on) { s_reset_score = on ? 1 : 0; }
+bool xrc_replay_reset_score_enabled(void) { return s_reset_score != 0; }
 

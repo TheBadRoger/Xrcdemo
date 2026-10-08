@@ -44,8 +44,8 @@ typedef struct {
                             //   关：只 warp 谱面时钟（速度快时音画会逐渐错开）。
     // ---- 自动演奏（功能账 §5）----
     BOOL      autoplay;     // 开（默认关）：一切判定强制 Pure（含漏扫 ts=-1 直调）
-    // ---- 回跳重播（XRCReplay）----
-    BOOL      replay_arm;   // 开：回跳到已游玩并判定过的段落时支持重新游玩并清空分数记录（默认关）
+    // ---- 回拖成绩策略（XRCReplay）----
+    BOOL      reset_score;  // 开：回拖时重置成绩；关（默认）：保留成绩。音符始终恢复
     BOOL      stubs_lite;   // 开：观测桩轻量模式（开发构建专用；发布构建恒空操作）
     // ---- 日志（见 XRCLog.h）----
     int       log_level;    // 0=err 1=warn 2=info(默认) 3=debug（含采集落盘）

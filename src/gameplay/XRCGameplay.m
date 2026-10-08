@@ -140,7 +140,6 @@ static uint32_t s_seek_audio_target;
 static int32_t s_seek_offset, s_seek_previous;
 static double s_seek_audio_rate;
 static uint64_t s_seek_started_us, s_seek_deadline_us, s_seek_sequence;
-static bool s_seek_force_replay;
 static bool s_seek_has_freeze;
 static uint64_t s_seek_result_sequence;
 static bool s_seek_result_success;
@@ -244,7 +243,7 @@ static void s_frz_tick(void *ng) {
                      s_seek_sequence, audio, chart, s_seek_offset);
             if (chart < s_seek_previous)
                 xrc_replay_seek((uint64_t)s_seek_scene, chart > 0 ? (uint32_t)chart : 0,
-                                (uint32_t)s_seek_previous, s_seek_force_replay);
+                                (uint32_t)s_seek_previous);
             xrc_freeze_end(); // Also closes no-replay/no-note paths.
         } else if (now >= s_seek_deadline_us) {
             // Never commit a failed target. Restore chart/audio relationship if readable.
@@ -327,7 +326,7 @@ static void s_exec_pending(void *self) {
     s_sync_reconcile_frames=0;
     s_seek_audio_rate=audioRate;
     s_seek_audio_target = target; s_seek_offset = (int32_t)offset;
-    s_seek_previous = chart; s_seek_force_replay = op != XRC_OP_SEEK;
+    s_seek_previous = chart;
     s_seek_started_us = now; s_seek_deadline_us = now + XRC_FRZ_MAX_US;
     ++s_seek_sequence;
     xrc_clock_freeze_inc();

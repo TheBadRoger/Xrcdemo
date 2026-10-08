@@ -281,7 +281,7 @@ static void doBootstrap(void) {
             }
         }];
         [[NSRunLoop mainRunLoop] addTimer:xrc_tick forMode:NSRunLoopCommonModes];
-        xrc_replay_start();   // 回跳重播引擎：常驻检出线程（落笔在主队列；总门由面板控制）
+        xrc_replay_start();   // 回跳重播引擎：常驻检出线程（落笔在主队列；每次回拖恢复音符，成绩策略由面板控制）
         xrc_logi(XRCLC_BOOT, @"practice-timing v1: real-time judgment lock / unrestricted note flow");
 #if defined(XRC_GAME_VERSION_7_0_256)
         xrc_logi(XRCLC_BOOT, @"konzetsu-practice v1: any-song effects / per-load snapshot / independent challenge gauge");
@@ -346,8 +346,8 @@ static void xrc_apply_switches(void) {
         xrc_log_set_level(g_cfg.log_level);
         xrc_log_set_cats(g_cfg.log_cats ? (uint32_t)g_cfg.log_cats : XRCLC_ALL);
     } @catch (NSException *e) { xrc_logw(XRCLC_BOOT, @"log cfg EX: %@", e); }
-    // 回跳重播（XRCReplay）与观测桩轻量：幂等应用（%ctor 与面板保存共用本入口）
-    @try { xrc_replay_set_enabled(g_cfg.replay_arm); }
+    // 回拖成绩策略（XRCReplay）与观测桩轻量：幂等应用（%ctor 与面板保存共用本入口）
+    @try { xrc_replay_set_reset_score(g_cfg.reset_score); }
     @catch (NSException *e) { xrc_logw(XRCLC_BOOT, @"replay flag EX: %@", e); }
     @try { xrc_arc_stubs_lite_set(g_cfg.stubs_lite); }
     @catch (NSException *e) { xrc_logw(XRCLC_BOOT, @"stubs lite EX: %@", e); }
