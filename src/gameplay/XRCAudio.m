@@ -7,6 +7,7 @@
 #include "XRCLog.h"
 #include "XRCProfile.h"
 #include "XRCClock.h"
+#include "XRCSeekMath.h"
 #include "XRCPlayer.h"
 #include "XRCGameplay.h"
 
@@ -91,6 +92,7 @@ static int   s_dsp_type;           // 探测到的内置移调 DSP 类型号（0
 static float s_dsp_lat_ms;         // 该 DSP 的固有延迟（由 FFTSIZE 参数换算）
 static double s_applied_rate = 1.0;
 static void *s_applied_group;
+static uint64_t s_owned_seek_until;
 static uint32_t s_last_pos_ms;     // 位置回退检测（seek/retry 后要重新补偿）
 static atomic_bool s_enabled = true;
 
@@ -157,6 +159,7 @@ static float s_pitch_ratio(double rate) {
 }
 
 void xrc_audio_speed_apply(double rate) {
+    if (xrc_gameplay_seek_active()) return; // apply UI changes after reconciliation
     s_resolve();
     if (!p_set_pitch) return;
     if (!atomic_load(&s_enabled)) rate = 1.0;            // 关着：只保证音高复位，不跟随
@@ -193,9 +196,13 @@ void xrc_audio_speed_apply(double rate) {
 }
 
 void xrc_audio_speed_tick(void) {
+    if (xrc_gameplay_seek_active()) return;
     s_resolve();
     if (!p_set_pitch) return;
-    if (!atomic_load(&s_enabled)) return;    // 关：set_enabled 已复位音高，这里不再动（也不补偿）
+    if (!atomic_load(&s_enabled)) {
+        if (s_applied_rate!=1.0) xrc_audio_speed_apply(1.0);
+        return;
+    }
     void *group = s_bgm_group();
     double rate = xrc_clock_get_rate();
 
@@ -204,7 +211,7 @@ void xrc_audio_speed_tick(void) {
         void *ch = s_channel0();
         uint32_t pos = 0;
         if (ch && p_ch_getpos && p_ch_getpos(ch, &pos, 1) == 0) {
-            if (!xrc_gameplay_seek_active() && pos + 500 < s_last_pos_ms) s_compensate(ch, rate);
+            if (xrc_seek_audio_needs_compensation(pos,s_last_pos_ms,xrc_real_now_us(),s_owned_seek_until,false)) s_compensate(ch,rate);
             s_last_pos_ms = pos;
         }
     }
@@ -225,4 +232,11 @@ NSString *xrc_audio_speed_status(void) {
 double xrc_audio_output_latency_ms(void) {
     void *group = s_bgm_group();
     return s_dsp && group && s_dsp_group == group ? (double)s_dsp_lat_ms : 0.0;
+}
+
+double xrc_audio_effective_rate(void) { return s_applied_rate; }
+void xrc_audio_seek_finished(void) {
+    s_owned_seek_until=xrc_real_now_us()+2000000ULL;
+    void *channel=s_channel0(); uint32_t position=0;
+    if (channel && p_ch_getpos && p_ch_getpos(channel,&position,1)==0) s_last_pos_ms=position;
 }

@@ -46,3 +46,7 @@ NSString *xrc_audio_speed_status(void);
 
 // 当前已挂载 DSP 的输出延迟（真实毫秒），未挂载时为 0。
 double xrc_audio_output_latency_ms(void);
+
+// Acknowledges a plugin-owned seek without issuing another audio seek.
+void xrc_audio_seek_finished(void);
+double xrc_audio_effective_rate(void);

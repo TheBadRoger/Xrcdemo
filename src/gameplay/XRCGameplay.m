@@ -138,6 +138,7 @@ static _Atomic(int) s_frz_state;
 static void *s_seek_scene, *s_seek_ng, *s_seek_player;
 static uint32_t s_seek_audio_target;
 static int32_t s_seek_offset, s_seek_previous;
+static double s_seek_audio_rate;
 static uint64_t s_seek_started_us, s_seek_deadline_us, s_seek_sequence;
 static bool s_seek_force_replay;
 static bool s_seek_has_freeze;
@@ -147,7 +148,12 @@ static bool s_seek_result_success;
 static void *s_sync_scene, *s_sync_ng, *s_sync_player;
 static int32_t s_sync_offset;
 static bool s_sync_have_calibration;
+static void *s_sync_clock;
+static xrc_sync_samples_t s_sync_samples;
+static double s_sync_sample_rate;
+static int32_t s_sync_sample_delay, s_sync_sample_extra;
 static uint64_t s_sync_probe_until, s_sync_probe_last;
+static unsigned s_sync_reconcile_frames;
 
 uint64_t xrc_gameplay_seek_result(bool *success) {
     if (success) *success = s_seek_result_success;
@@ -173,21 +179,26 @@ static bool s_seek_context_valid(void *ng) {
 
 static void s_seek_finish(bool success) {
     if (!xrc_gameplay_seek_active()) return;
-    uint32_t audio = 0;
-    if (success && s_seek_context_valid(s_seek_ng) &&
-        xrc_player_read_position(s_seek_player, &audio)) {
-        xrc_clock_shift_to(s_seek_ng, xrc_seek_chart_target(audio, s_seek_offset));
-        xrc_logi(XRCLC_JUDGE, @"[seek-sync] #%llu final audio=%u chart=%d delta=%lld",
-                 s_seek_sequence, audio, xrc_chart_clock_ms(s_seek_ng),
-                 (int64_t)xrc_chart_clock_ms(s_seek_ng) - audio);
+    // Release the frozen epoch before the final write. Mark the audio retreat as
+    // plugin-owned before audio tick resumes, preventing a second DSP bump.
+    if (s_seek_has_freeze) {
+        xrc_clock_freeze_dec(); s_seek_has_freeze=false;
     }
+    xrc_audio_seek_finished();
+    atomic_store(&s_frz_state,XRC_FRZ_OFF);
+    xrc_audio_speed_tick();
+    uint32_t audio=0;
+    if (s_seek_context_valid(s_seek_ng) && xrc_player_read_position(s_seek_player,&audio)) {
+        int32_t delay=xrc_seek_output_delay(xrc_audio_effective_rate(),xrc_audio_output_latency_ms());
+        s_seek_offset=xrc_seek_runtime_offset(s_sync_offset,delay,xrc_rate_adapt_offset_extra(s_seek_ng));
+        xrc_clock_shift_to(s_seek_ng,xrc_seek_chart_target(audio,s_seek_offset));
+        xrc_logi(XRCLC_JUDGE,@"[seek-sync] #%llu final audio=%u chart=%d delta=%lld",
+                 s_seek_sequence,audio,xrc_chart_clock_ms(s_seek_ng),
+                 (int64_t)xrc_chart_clock_ms(s_seek_ng)-audio);
+    }
+    s_sync_reconcile_frames=2;
     s_seek_result_sequence = s_seek_sequence;
     s_seek_result_success = success;
-    if (s_seek_has_freeze) {
-        xrc_clock_freeze_dec();
-        s_seek_has_freeze = false;
-    }
-    atomic_store(&s_frz_state, XRC_FRZ_OFF);
     s_sync_probe_until = xrc_real_now_us() + 2000000ULL;
     s_sync_probe_last = 0;
     s_gp_last_real_us = 0;
@@ -225,7 +236,7 @@ static void s_frz_tick(void *ng) {
     if (state == XRC_FRZ_FROZEN) {
         if (readable && xrc_seek_landed(audio, s_seek_audio_target,
                                         now - s_seek_started_us,
-                                        xrc_audio_speed_enabled() ? xrc_clock_get_rate() : 1.0)) {
+                                        s_seek_audio_rate)) {
             int32_t chart = xrc_seek_chart_target(audio, s_seek_offset);
             xrc_clock_shift_to(ng, chart);
             atomic_store(&s_frz_state, XRC_FRZ_REBUILD);
@@ -250,20 +261,30 @@ static void s_frz_tick(void *ng) {
 
 // Capture native calibration during ordinary playback, before a seek or rate change
 // can contaminate a one-off measurement. DSP latency is not stored as calibration.
-static void s_capture_sync_calibration(void *scene, void *ng) {
+static void s_capture_sync_calibration(void *scene,void *ng) {
     if (xrc_gameplay_seek_active() || !ng) return;
-    void *player = xrc_player_get();
-    if (s_sync_have_calibration && s_sync_scene == scene && s_sync_ng == ng && s_sync_player == player) return;
-    int32_t chart = xrc_chart_clock_ms(ng);
-    uint32_t audio = 0;
-    if (chart < 0 || !xrc_player_read_position(player, &audio)) return;
-    double rate = xrc_audio_speed_enabled() ? xrc_clock_get_rate() : 1.0;
-    int32_t delay = xrc_seek_output_delay(rate, xrc_audio_output_latency_ms());
-    int64_t calibration = (int64_t)chart - audio + delay + xrc_rate_adapt_offset_extra(ng);
-    if (calibration < INT_MIN || calibration > INT_MAX) return;
-    s_sync_scene = scene; s_sync_ng = ng; s_sync_player = player;
-    s_sync_offset = (int32_t)calibration; s_sync_have_calibration = true;
-    xrc_logi(XRCLC_JUDGE, @"[seek-sync] native calibration=%d delay=%d rate=%.3f", s_sync_offset, delay, rate);
+    void *player=xrc_player_get();
+    void *clock=*(void **)((char *)ng+XRC_CLOCK_IN_NOTEGROUP_OFF);
+    if (s_sync_scene!=scene || s_sync_ng!=ng || s_sync_player!=player || s_sync_clock!=clock) {
+        s_sync_scene=scene; s_sync_ng=ng; s_sync_player=player; s_sync_clock=clock;
+        s_sync_have_calibration=false; s_sync_samples=(xrc_sync_samples_t){0};
+    }
+    if (s_sync_have_calibration) return;
+    int32_t chart=xrc_chart_clock_ms(ng); uint32_t audio=0;
+    if (chart<0 || !xrc_player_read_position(player,&audio) || !audio) return;
+    double rate=xrc_audio_effective_rate();
+    int32_t delay=xrc_seek_output_delay(rate,xrc_audio_output_latency_ms());
+    int32_t extra=xrc_rate_adapt_offset_extra(ng);
+    if (rate!=s_sync_sample_rate || delay!=s_sync_sample_delay || extra!=s_sync_sample_extra) {
+        s_sync_samples=(xrc_sync_samples_t){0};
+        s_sync_sample_rate=rate; s_sync_sample_delay=delay; s_sync_sample_extra=extra;
+    }
+    int64_t value=(int64_t)chart-audio+delay+extra;
+    if (value<INT_MIN || value>INT_MAX) return;
+    if (!xrc_seek_sample_calibration(&s_sync_samples,(int32_t)value,xrc_real_now_us(),&s_sync_offset)) return;
+    s_sync_have_calibration=true;
+    xrc_logi(XRCLC_JUDGE,@"[seek-sync] stable calibration=%d samples=%u delay=%d rate=%.3f",
+             s_sync_offset,s_sync_samples.count,delay,rate);
 }
 
 static void s_exec_pending(void *self) {
@@ -292,22 +313,19 @@ static void s_exec_pending(void *self) {
     int64_t measured = (int64_t)chart - audio;
     double rate = xrc_clock_get_rate();
     bool music = xrc_audio_speed_enabled();
-    double audioRate = music ? rate : 1.0;
+    double audioRate = xrc_audio_effective_rate();
     double latency = xrc_audio_output_latency_ms();
     int32_t delay = xrc_seek_output_delay(audioRate, latency);
-    if (!s_sync_have_calibration || s_sync_scene != self || s_sync_ng != ng || s_sync_player != player) {
-        int64_t calibration = measured + delay + xrc_rate_adapt_offset_extra(ng);
-        if (calibration < INT_MIN || calibration > INT_MAX) return;
-        s_sync_scene = self; s_sync_ng = ng; s_sync_player = player;
-        s_sync_offset = (int32_t)calibration;
-        s_sync_have_calibration = true;
-    }
-    int64_t offset = (int64_t)xrc_seek_calibrated_offset(s_sync_offset, delay) - xrc_rate_adapt_offset_extra(ng);
+    if (!s_sync_have_calibration || s_sync_scene!=self || s_sync_ng!=ng || s_sync_player!=player ||
+        s_sync_clock!=*(void **)((char *)ng+XRC_CLOCK_IN_NOTEGROUP_OFF)) return;
+    int64_t offset=xrc_seek_runtime_offset(s_sync_offset,delay,xrc_rate_adapt_offset_extra(ng));
     xrc_logi(XRCLC_JUDGE, @"[seek-sync] measured=%lld calibration=%d outputDelay=%d baseline=%lld rate=%.3f music=%d",
              measured, s_sync_offset, delay, offset, rate, music);
     atomic_store(&s_pending_op, XRC_OP_NONE);
     if (offset < INT_MIN || offset > INT_MAX) return;
     s_seek_scene = self; s_seek_ng = ng; s_seek_player = player;
+    s_sync_reconcile_frames=0;
+    s_seek_audio_rate=audioRate;
     s_seek_audio_target = target; s_seek_offset = (int32_t)offset;
     s_seek_previous = chart; s_seek_force_replay = op != XRC_OP_SEEK;
     s_seek_started_us = now; s_seek_deadline_us = now + XRC_FRZ_MAX_US;
@@ -537,6 +555,15 @@ void xrc_gameplay_update(void *self, uint64_t a2, uint64_t a3, uint64_t a4, uint
         xrc_rate_adapt_frame_end(self, ng);
         s_capture_sync_calibration(self, ng);
         s_frz_tick(ng);
+        if (!xrc_gameplay_seek_active() && s_sync_reconcile_frames) {
+            uint32_t confirmed_audio=0;
+            if (s_seek_context_valid(ng) && xrc_player_read_position(s_seek_player,&confirmed_audio)) {
+                int32_t delay=xrc_seek_output_delay(xrc_audio_effective_rate(),xrc_audio_output_latency_ms());
+                s_seek_offset=xrc_seek_runtime_offset(s_sync_offset,delay,xrc_rate_adapt_offset_extra(ng));
+                xrc_clock_shift_to(ng,xrc_seek_chart_target(confirmed_audio,s_seek_offset));
+                --s_sync_reconcile_frames;
+            } else s_sync_reconcile_frames=0;
+        }
         uint64_t now = xrc_real_now_us();
         uint32_t audio = 0;
         if (!xrc_gameplay_seek_active() && now < s_sync_probe_until &&

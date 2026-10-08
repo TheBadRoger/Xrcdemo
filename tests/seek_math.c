@@ -29,5 +29,23 @@ int main(void) {
     assert(xrc_seek_calibrated_offset(calibration, 48) == -28);
     assert(xrc_seek_calibrated_offset(calibration, 24) == -4);
     assert(xrc_seek_calibrated_offset(INT_MIN, 96) == INT_MIN);
+    assert(!xrc_seek_audio_needs_compensation(1000,45000,100,200,false));
+    assert(!xrc_seek_audio_needs_compensation(1000,45000,300,200,true));
+    assert(xrc_seek_audio_needs_compensation(1000,45000,300,200,false));
+    assert(!xrc_seek_audio_needs_compensation(UINT32_MAX,UINT32_MAX,300,200,false));
+    assert(xrc_seek_runtime_offset(20,48,-50)==22);
+    assert(xrc_seek_runtime_offset(INT_MAX,INT_MAX,-7)==7);
+    assert(xrc_seek_runtime_offset(INT_MIN,INT_MAX,INT_MAX)==INT_MIN);
+    xrc_sync_samples_t samples={0}; int32_t result=12345;
+    for (unsigned i=0;i<7;++i)
+        assert(!xrc_seek_sample_calibration(&samples,(int32_t)(i*100),i*50000,&result));
+    assert(result==12345); // unstable loading samples cannot seed calibration
+    for (unsigned i=0;i<6;++i)
+        assert(!xrc_seek_sample_calibration(&samples,20,400000+i*50000,&result));
+    assert(xrc_seek_sample_calibration(&samples,22,700000,&result) && result==20);
+    samples=(xrc_sync_samples_t){0};
+    for (unsigned i=0;i<7;++i)
+        assert(!xrc_seek_sample_calibration(&samples,20,i*20000,&result));
+    assert(xrc_seek_sample_calibration(&samples,20,200000,&result));
     return 0;
 }

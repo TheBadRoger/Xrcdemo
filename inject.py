@@ -991,8 +991,8 @@ def main():
                                           adapt_base + site - 0x100000000 + 4] == BRK_INSN
                                for name, site, _replay, _expect in BRK_HOOKS if name.startswith("native_flow_"))
     if (do_brk and "rate_flow" in g_selected_features) or native_flow_existing:
-        if b"practice-native-flow v1" not in plugin_bytes:
-            print("[!] native flow sites require a rebuilt dylib with 'practice-native-flow v1'")
+        if b"practice-native-flow v2" not in plugin_bytes:
+            print("[!] native flow sites require a rebuilt dylib with 'practice-native-flow v2'")
             sys.exit(3)
 
     # 配对校验（两条）：

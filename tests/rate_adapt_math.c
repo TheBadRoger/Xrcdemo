@@ -53,6 +53,19 @@ int main(void) {
     assert(fabs(xrc_native_flow_candidate(10,700,.5,true,-20,20)-10.07)<1e-5);
     assert(xrc_native_flow_candidate(0,700,1e-10,false,-20,20)==-20);
     assert(xrc_native_flow_candidate(0,700,1e-10,true,-20,20)==20);
+    // Arc endpoints and mesh corners share the same immutable baseline.
+    float geometry[24], changed[24];
+    for (unsigned i=0;i<24;++i) geometry[i]=(float)(i+1);
+    for (unsigned n=0;n<100;++n) {
+        double factor=n%2 ? 0.5 : 2.0;
+        xrc_arc_flow_geometry(changed,geometry,factor);
+        for (unsigned i=0;i<24;++i)
+            assert(changed[i]==(i%3==2 ? geometry[i]*factor : geometry[i]));
+        // Simulate native clipping, then return to 1x from the original shape.
+        changed[0]=900; changed[2]=0;
+        xrc_arc_flow_geometry(changed,geometry,1.0);
+        for (unsigned i=0;i<24;++i) assert(changed[i]==geometry[i]);
+    }
     // Always compute from native baseline, never multiply the previous result.
     float native=1;
     for (int i=0;i<100;++i) {

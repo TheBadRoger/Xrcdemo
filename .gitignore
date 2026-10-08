@@ -37,3 +37,6 @@ Password.txt
 errlog.txt
 .zsign_cache/
 .zsign_debug/
+
+# Local workflow provenance
+/build.json

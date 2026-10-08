@@ -427,3 +427,7 @@
 #else
 #define XRC_GAME_PROFILE_MARKER "xrc-profile:7.0.255"
 #endif
+
+#ifndef XRC_OFF_ARC_FLOW_MESH
+#define XRC_OFF_ARC_FLOW_MESH (0xAFE624ULL)
+#endif

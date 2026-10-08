@@ -25,3 +25,31 @@ static inline int32_t xrc_seek_calibrated_offset(int32_t calibration, int32_t de
     int64_t value = (int64_t)calibration - delay;
     return value > INT_MAX ? INT_MAX : value < INT_MIN ? INT_MIN : (int32_t)value;
 }
+
+// A plugin seek owns its DSP alignment. Do not turn its position retreat into
+// another Channel::setPosition after the transaction has completed.
+static inline bool xrc_seek_audio_needs_compensation(uint32_t position,uint32_t previous,
+                                                     uint64_t now,uint64_t owned_until,bool seeking) {
+    return !seeking && now>=owned_until && (uint64_t)position+500<previous;
+}
+static inline int32_t xrc_seek_runtime_offset(int32_t calibration,int32_t delay,int32_t extra) {
+    int64_t value=(int64_t)calibration-delay-extra;
+    return value>INT_MAX ? INT_MAX : value<INT_MIN ? INT_MIN : (int32_t)value;
+}
+#define XRC_SYNC_SAMPLES 7
+typedef struct { int32_t values[XRC_SYNC_SAMPLES]; unsigned count,cursor; uint64_t started; } xrc_sync_samples_t;
+static inline bool xrc_seek_sample_calibration(xrc_sync_samples_t *samples,int32_t value,uint64_t now,int32_t *result) {
+    if (!samples->count) samples->started=now;
+    samples->values[samples->cursor++%XRC_SYNC_SAMPLES]=value;
+    if (samples->count<XRC_SYNC_SAMPLES) ++samples->count;
+    if (samples->count<XRC_SYNC_SAMPLES || now<samples->started || now-samples->started<200000) return false;
+    int32_t sorted[XRC_SYNC_SAMPLES];
+    for (unsigned i=0;i<XRC_SYNC_SAMPLES;++i) {
+        sorted[i]=samples->values[i];
+        for (unsigned j=i;j>0 && sorted[j]<sorted[j-1];--j) {
+            int32_t temp=sorted[j]; sorted[j]=sorted[j-1]; sorted[j-1]=temp;
+        }
+    }
+    if ((int64_t)sorted[XRC_SYNC_SAMPLES-1]-sorted[0]>24) return false;
+    *result=sorted[XRC_SYNC_SAMPLES/2]; return true;
+}

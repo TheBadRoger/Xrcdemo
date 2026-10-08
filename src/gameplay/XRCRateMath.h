@@ -40,6 +40,11 @@ static inline float xrc_native_flow_distance(float value, double factor) {
     if (result<-2147483648.0) return -2147483648.0f;
     return (float)result;
 }
+// Eight native Vec3 records: two endpoints and six derived mesh corners.
+static inline void xrc_arc_flow_geometry(float out[24],const float original[24],double factor) {
+    for (unsigned i=0;i<24;++i)
+        out[i]=i%3==2 ? xrc_native_flow_distance(original[i],factor) : original[i];
+}
 // Widen only candidate lookup for slow flow; native visible thresholds stay intact.
 static inline float xrc_native_flow_candidate(float index, float window, double factor,
                                              bool upper, int32_t minimum, int32_t maximum) {

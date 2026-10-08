@@ -11,6 +11,7 @@
 #import <Foundation/Foundation.h>
 #include "XRCRateAdapt.h"
 #include "XRCRateMath.h"
+#include "XRCArcFlow.h"
 #include "XRCClock.h"
 #include "XRCGameplay.h"
 #include "XRCProfile.h"
@@ -75,7 +76,7 @@ void xrc_rate_adapt_set_offset(bool enabled) { atomic_store(&s_offset_enabled,en
 void xrc_rate_adapt_set_flow(bool enabled) { atomic_store(&s_flow_enabled,enabled); }
 bool xrc_rate_adapt_offset_enabled(void) { return atomic_load(&s_offset_enabled); }
 bool xrc_rate_adapt_flow_enabled(void) { return atomic_load(&s_flow_enabled); }
-bool xrc_rate_adapt_flow_available(void) { return s_setter_valid && xrc_feature_complete("rate_flow"); }
+bool xrc_rate_adapt_flow_available(void) { return s_setter_valid && xrc_feature_complete("rate_flow") && xrc_arc_flow_available(); }
 void xrc_rate_adapt_native_tick(void) {
     if (![NSThread isMainThread] || !xrc_rate_adapt_flow_available()) return;
     int32_t requested=atomic_load(&s_manual_flow);
@@ -160,6 +161,7 @@ static void s_flow_frame(void *scene,void *ng) {
     double native=xrc_rate_adapt_native_flow();
     double factor=xrc_live_flow_factor(baseline,native,xrc_clock_get_rate(),xrc_rate_adapt_flow_enabled());
     uint64_t bits; memcpy(&bits,&factor,sizeof(bits));
+    xrc_arc_flow_frame(scene,factor,xrc_chart_clock_ms(ng));
     atomic_store(&s_factor_bits,bits); atomic_store(&s_native_ng,(uint64_t)ng);
     if (factor!=s_reported_factor) {
         xrc_logi(XRCLC_BOOT,@"[flow-native] loaded=%.6f setting=%.1f rate=%.3f distance-factor=%.8g adapt=%d",
@@ -178,6 +180,7 @@ void xrc_rate_adapt_frame_begin(void *scene, void *ng) {
         s_scene = (uint64_t)scene; s_ng = (uint64_t)ng; s_clock = clock; s_song = song;
         s_original_offset = s_preference_offset(); s_extra = 0;
         s_bounds_ng = 0;
+        xrc_arc_flow_reset();
     }
     int32_t desired = xrc_adapt_offset_extra(s_original_offset, xrc_clock_get_rate(),
                                             xrc_rate_adapt_offset_enabled());
