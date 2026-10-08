@@ -45,7 +45,7 @@ static inline double xrc_live_flow_factor(double base, double requested, double 
 #define XRC_FLOW_WINDOW_DENOM 1000000ULL
 static inline uint64_t xrc_live_window_factor(double scale) {
     double factor = XRC_FLOW_WINDOW_DENOM / scale;
-    return !isfinite(factor) || factor >= UINT64_MAX ? UINT64_MAX :
+    return !isfinite(factor) || factor >= 0x1p64 ? UINT64_MAX :
         factor < 0.5 ? 0 : (uint64_t)floor(factor + 0.5);
 }
 // Integer-only, saturating multiplication for the signal handler.
