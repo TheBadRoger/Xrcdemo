@@ -456,7 +456,15 @@ static void s_rate_probe_tick(void *note_group) {
     last_us = now; last_chart = chart; last_chan = chan; have = 1;
 }
 
+static _Atomic(uint64_t) s_last_gameplay_frame;
+bool xrc_gameplay_is_active(void) {
+    uint64_t last = atomic_load(&s_last_gameplay_frame);
+    uint64_t now = xrc_real_now_us();
+    return last && now >= last && now - last < 750000ULL;
+}
+
 void xrc_gameplay_update(void *self, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5) {
+    atomic_store(&s_last_gameplay_frame, self ? xrc_real_now_us() : 0);
     @try { if (!xrc_gameplay_seek_active()) xrc_audio_speed_tick(); } @catch (NSException *e) {}
     if (!self) {
         atomic_store(&xrc_gp_instance, NULL);

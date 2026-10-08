@@ -4,6 +4,7 @@
 // 图标：用户提供的悬浮球图片（80x80 JPEG，base64 内嵌，构建期零外部资源）。
 
 #import "XRCFloatButton.h"
+#include "XRCGameplay.h"
 #import "XRCLog.h"   // XRC_BUILD_STAMP（版本号显示用）
 
 static const char kIconB64[] =
@@ -11,6 +12,8 @@ static const char kIconB64[] =
 
 @implementation XRCFloatButton {
     UIImageView *_icon;
+    BOOL _manuallyHidden;
+    BOOL _hideDuringGameplay;
 }
 
 + (instancetype)shared {
@@ -116,7 +119,17 @@ static const char kIconB64[] =
 }
 
 - (void)setHiddenState:(BOOL)hidden {
-    self.hidden = hidden;
+    _manuallyHidden = hidden;
+    [self refreshVisibility];
+}
+
+- (void)setHideDuringGameplay:(BOOL)enabled {
+    _hideDuringGameplay = enabled;
+    [self refreshVisibility];
+}
+
+- (void)refreshVisibility {
+    self.hidden = _manuallyHidden || (_hideDuringGameplay && xrc_gameplay_is_active());
 }
 
 @end

@@ -85,6 +85,7 @@ static NSString *const kNoteDev =
 @property (nonatomic, strong) UISlider *speedSlider;
 @property (nonatomic, strong) XRCSwitchRow *swRateOffset;
 @property (nonatomic, strong) XRCSwitchRow *swRateFlow;
+@property (nonatomic, strong) XRCSwitchRow *swHideDuringPlay;
 // 循环
 @property (nonatomic, strong) UIButton *fromBtn;
 @property (nonatomic, strong) UIButton *toBtn;
@@ -99,7 +100,6 @@ static NSString *const kNoteDev =
 @property (nonatomic, strong) UIButton *konzetsuSelect;
 @property (nonatomic, strong) XRCSwitchRow *swKonzetsuEnabled;
 @property (nonatomic, strong) XRCSwitchRow *swKonzetsuChallenge;
-@property (nonatomic, strong) UILabel *konzetsuStatus;
 // 解锁
 @property (nonatomic, strong) XRCSwitchRow *swOwn;
 @property (nonatomic, strong) XRCSwitchRow *swCb;
@@ -128,6 +128,8 @@ static NSString *const kNoteDev =
 - (void)relayoutScroll;
 - (void)toggleInfo;
 - (void)updateKonzetsuMenu;
+- (void)cycleKonzetsu;
+- (void)toggleHideDuringPlay;
 - (void)toggleKonzetsuEnabled;
 - (void)toggleKonzetsuChallenge;
 - (CGFloat)note:(NSString *)text at:(CGFloat)x y:(CGFloat)y w:(CGFloat)w;
@@ -385,7 +387,12 @@ static NSString *const kNoteDev =
     self.swRateFlow.frame = CGRectMake(cardPad, adaptY + rowH + 8, W - cardPad * 2, rowH);
     [self.swRateFlow addTarget:self action:@selector(toggleRateFlow) forControlEvents:UIControlEventTouchUpInside];
     [c1 addSubview:self.swRateFlow];
-    c1.frame = CGRectMake(x0, y, W, adaptY + 2 * rowH + 8 + cardPad);
+    self.swHideDuringPlay = [[XRCSwitchRow alloc] initWithTitle:@"游玩时隐藏图标"];
+    self.swHideDuringPlay.note = @"游玩期间隐藏悬浮图标，退出后自动恢复。";
+    self.swHideDuringPlay.frame = CGRectMake(cardPad, adaptY + 2 * (rowH + 8), W - cardPad * 2, rowH);
+    [self.swHideDuringPlay addTarget:self action:@selector(toggleHideDuringPlay) forControlEvents:UIControlEventTouchUpInside];
+    [c1 addSubview:self.swHideDuringPlay];
+    c1.frame = CGRectMake(x0, y, W, adaptY + 3 * rowH + 16 + cardPad);
     y = [self note:kNotePlayback afterCard:c1 x:x0 y:y w:W] + secGap;
 
     // ============ ② 循环 ============
@@ -486,7 +493,7 @@ static NSString *const kNoteDev =
     UIView *kc = [self cardAt:x0 y:y w:W];
     self.konzetsuSelect = [self makeActionButton:@"选择挑战"];
     self.konzetsuSelect.frame = CGRectMake(cardPad, cardPad, W - cardPad * 2, rowH);
-    self.konzetsuSelect.showsMenuAsPrimaryAction = YES;
+    [self.konzetsuSelect addTarget:self action:@selector(cycleKonzetsu) forControlEvents:UIControlEventTouchUpInside];
     [kc addSubview:self.konzetsuSelect];
     [self updateKonzetsuMenu];
     CGFloat kw = (W - cardPad * 2 - gap) / 2;
@@ -500,12 +507,7 @@ static NSString *const kNoteDev =
     self.swKonzetsuChallenge.frame = CGRectMake(cardPad + kw + gap, cardPad + rowH + gap, kw, rowH);
     [self.swKonzetsuChallenge addTarget:self action:@selector(toggleKonzetsuChallenge) forControlEvents:UIControlEventTouchUpInside];
     [kc addSubview:self.swKonzetsuChallenge];
-    self.konzetsuStatus = [[UILabel alloc] initWithFrame:CGRectMake(cardPad, cardPad + (rowH + gap) * 2, W - cardPad * 2, 28)];
-    self.konzetsuStatus.font = [UIFont systemFontOfSize:10];
-    self.konzetsuStatus.textColor = [UIColor colorWithWhite:0.6 alpha:1.0];
-    self.konzetsuStatus.numberOfLines = 2;
-    [kc addSubview:self.konzetsuStatus];
-    kc.frame = CGRectMake(x0, y, W, cardPad * 2 + (rowH + gap) * 2 + 28);
+    kc.frame = CGRectMake(x0, y, W, cardPad * 2 + rowH * 2 + gap);
     y = [self note:@"选项：下隐、变速、上下反、点血条、综合。普通歌曲的综合按谱面时长生成练习时间表；点血条配合挑战开关使用。" afterCard:kc x:x0 y:y w:W] + secGap;
 
     // ============ ④ 解锁 ============
@@ -918,25 +920,26 @@ static NSString *const kNoteDev =
     xrc_config_t config; xrc_config_load(&config);
     NSArray<NSString *> *names = @[@"下隐", @"变速", @"上下反", @"点血条", @"综合"];
     NSArray<NSNumber *> *ids = @[@1, @2, @3, @4, @6];
-    NSMutableArray<UIAction *> *items = [NSMutableArray new];
-    __weak typeof(self) weakSelf = self;
-    for (NSUInteger i = 0; i < ids.count; i++) {
-        int choice = ids[i].intValue;
-        UIAction *item = [UIAction actionWithTitle:names[i] image:nil identifier:nil handler:^(__kindof UIAction *action) {
-            xrc_config_t next; xrc_config_load(&next);
-            next.konzetsu_id = choice;
-            xrc_config_save(&next);
-            xrc_konzetsu_configure(next.konzetsu_id, next.konzetsu_enabled, next.konzetsu_challenge);
-            [weakSelf updateKonzetsuMenu];
-            [weakSelf refresh];
-            [WHToast showMessage:@"挑战已保存，下一次开局生效" duration:1.4 finishHandler:^{}];
-        }];
-        item.state = config.konzetsu_id == choice ? UIMenuElementStateOn : UIMenuElementStateOff;
-        [items addObject:item];
-        if (config.konzetsu_id == choice)
-            [self.konzetsuSelect setTitle:[NSString stringWithFormat:@"选择挑战：%@", names[i]] forState:UIControlStateNormal];
-    }
-    self.konzetsuSelect.menu = [UIMenu menuWithTitle:@"Konzetsu" children:items];
+    NSUInteger index = [ids indexOfObject:@(config.konzetsu_id)];
+    if (index == NSNotFound) index = 0;
+    [self.konzetsuSelect setTitle:[NSString stringWithFormat:@"选择挑战：%@", names[index]] forState:UIControlStateNormal];
+}
+- (void)cycleKonzetsu {
+    if (!xrc_konzetsu_available()) return;
+    xrc_config_t config; xrc_config_load(&config);
+    NSArray<NSNumber *> *ids = @[@1, @2, @3, @4, @6];
+    NSUInteger index = [ids indexOfObject:@(config.konzetsu_id)];
+    config.konzetsu_id = ids[index == NSNotFound ? 0 : (index + 1) % ids.count].intValue;
+    xrc_config_save(&config);
+    xrc_konzetsu_configure(config.konzetsu_id, config.konzetsu_enabled, config.konzetsu_challenge);
+    [self refresh];
+}
+- (void)toggleHideDuringPlay {
+    xrc_config_t config; xrc_config_load(&config);
+    config.hide_button_during_play = !config.hide_button_during_play;
+    xrc_config_save(&config);
+    [[XRCFloatButton shared] setHideDuringGameplay:config.hide_button_during_play];
+    [self refresh];
 }
 - (void)toggleKonzetsuEnabled {
     if (!xrc_konzetsu_available()) return;
@@ -1199,9 +1202,9 @@ static NSString *const kNoteDev =
     self.swKonzetsuEnabled.enabled = self.swKonzetsuChallenge.enabled = konzetsuAvailable;
     self.swKonzetsuEnabled.on = kc.konzetsu_enabled;
     self.swKonzetsuChallenge.on = kc.konzetsu_challenge;
-    self.konzetsuStatus.text = konzetsuAvailable
-        ? @"已保存的设置在下一次加载谱面时应用。\n本局保持开局设置，原生重试可能沿用本局谱面。"
-        : @"当前游戏或主程序未包含完整挑战练习桩。\n需使用 7.0.256 配套产物重新部署。";
+    [self updateKonzetsuMenu];
+    self.swHideDuringPlay.on = kc.hide_button_during_play;
+    self.swHideDuringPlay.enabled = xrc_cap_gp();
     self.swJudgeTimeLock.enabled = xrc_judge_is_active() && xrc_feature_complete("judge_time_lock");
     self.swRateOffset.on = xrc_rate_adapt_offset_enabled();
     self.swRateOffset.enabled = xrc_cap_gp();

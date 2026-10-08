@@ -151,6 +151,7 @@ static void initButton(void) {
     };
     UIWindow *w = [[XRCMenuBridge shared] keyWindow];
     [button attachToWindow:w];
+    [button setHideDuringGameplay:g_cfg.hide_button_during_play];
     if (!g_cfg.button_enabled) [button setHiddenState:YES];
 }
 
@@ -201,6 +202,7 @@ static void doBootstrap(void) {
         // 而 cocos2d 的游戏循环不服务 default mode —— 对局中轮询会整个停摆
         //（player 变化检测与位置兜底失效），挂 common modes 才能全程跑。
         NSTimer *xrc_tick = [NSTimer timerWithTimeInterval:0.5 repeats:YES block:^(NSTimer *t) {
+            [button refreshVisibility];
 #if XRC_DEBUG_BUILD
             // applog 采集（开发构建）：日志档位 = 详细 且类别含 om 时落盘。
             if ((xrc_log_cats() & XRCLC_OM) && xrc_log_level() >= XRCLL_DEBUG) {

@@ -9,6 +9,7 @@ typedef struct {
     NSInteger speed_count;
     NSInteger rate_index;
     BOOL      button_enabled;
+    BOOL      hide_button_during_play;
     BOOL      toast;
     int       judge_max_ms;
     int       judge_pure_ms;

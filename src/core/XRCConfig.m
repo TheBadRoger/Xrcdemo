@@ -33,6 +33,7 @@ static void s_ensure_defaults(NSMutableDictionary *p) {
         p[@"speed-5"] = @1.50;
     }
     if (!p[@"buttonEnabled"]) p[@"buttonEnabled"] = @YES;
+    if (!p[@"hideButtonDuringPlay"]) p[@"hideButtonDuringPlay"] = @NO;
     if (!p[@"toast"])         p[@"toast"]         = @YES;
     if (!p[@"rateIndex"])     p[@"rateIndex"]     = @0;
     if (!p[@"judgeMaxMs"] && p[@"judgeWindowScale"]) {
@@ -121,6 +122,7 @@ void xrc_config_load(xrc_config_t *out) {
     NSMutableDictionary *prefs = xrc_config_dict();
     out->toast          = [prefs[@"toast"] boolValue];
     out->button_enabled = [prefs[@"buttonEnabled"] boolValue];
+    out->hide_button_during_play = [prefs[@"hideButtonDuringPlay"] boolValue];
     NSArray *speed_keys = prefs[@"speedKeys"];
     out->speed_count    = speed_keys.count;
     for (NSInteger i = 0; i < out->speed_count && i < 16; i++)
@@ -160,6 +162,7 @@ void xrc_config_save(const xrc_config_t *c) {
     NSMutableDictionary *p = xrc_config_dict();
     p[@"toast"]         = @(c->toast);
     p[@"buttonEnabled"] = @(c->button_enabled);
+    p[@"hideButtonDuringPlay"] = @(c->hide_button_during_play);
     p[@"rateIndex"]     = @(c->rate_index);
     p[@"judgeMaxMs"]    = @(c->judge_max_ms);
     p[@"judgePureMs"]   = @(c->judge_pure_ms);

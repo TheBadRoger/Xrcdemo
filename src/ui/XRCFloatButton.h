@@ -15,5 +15,7 @@
 
 - (void)attachToWindow:(UIWindow *)window;
 - (void)setHiddenState:(BOOL)hidden;
+- (void)setHideDuringGameplay:(BOOL)enabled;
+- (void)refreshVisibility;
 
 @end

@@ -23,6 +23,8 @@ void xrc_gameplay_update(void *self, uint64_t a2, uint64_t a3, uint64_t a4, uint
 
 // 当前 gameplay 实例（gp.update hook 缓存；循环/seek 平移用）。
 extern _Atomic(void *) xrc_gp_instance;
+// Recent gameplay frames, without dereferencing a potentially stale scene.
+bool xrc_gameplay_is_active(void);
 
 // ---- deferred 操作状态机（UI 只登记，gp.update 循环内执行）----
 // 原因：seek 读旧场景内部状态（sub_10091BBB8(v3[116])），
