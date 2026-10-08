@@ -1,4 +1,4 @@
-// Arcaea iOS 7.0.256 address overrides; see docs/ios-7.0.256-adaptation.md.
+// Arcaea iOS 7.0.256 address overrides; see docs/version-adaptation.md.
 // Verified against source executable SHA-256 eae2722958eac2f7358d97a3a7e172726a59577fa15b98d70d747f7815d3e613.
 #pragma once
 

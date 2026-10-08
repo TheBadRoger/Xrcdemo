@@ -37,6 +37,7 @@ Arcaea iOS 练习插件，提供变速、进度跳转、循环练习、判定调
 | [插件功能](docs/features.md) | 面板操作、默认设置、功能范围 |
 | [实现原理](docs/architecture.md) | 注入结构、时钟与音频同步、版本适配 |
 | [安装方式](docs/installation.md) | 构建、部署、签名、cb 导入及故障排查 |
+| [版本适配](docs/version-adaptation.md) | 新游戏版本的定位、配置、接口核对、构建与验收指南 |
 
 游戏文件、IPA 和签名材料不随仓库发布。项目用途为离线练习及自有服务测试；与 lowiro 无关联。许可见 [LICENSE](LICENSE)，第三方组件说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
