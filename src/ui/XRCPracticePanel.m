@@ -30,6 +30,7 @@
 #include "XRCAudio.h"
 #include "XRCReplay.h"
 #include "XRCRateAdapt.h"
+#include "XRCRateMath.h"
 #include "XRCKonzetsu.h"
 #include "XRCKonzetsuMath.h"
 #include "XRCPracticeMath.h"
@@ -86,6 +87,9 @@ static NSString *const kNoteDev =
 @property (nonatomic, strong) XRCSwitchRow *swRateOffset;
 @property (nonatomic, strong) XRCSwitchRow *swRateFlow;
 @property (nonatomic, strong) XRCSwitchRow *swHideDuringPlay;
+@property (nonatomic, strong) UITextField *flowField;
+@property (nonatomic, strong) UIButton *flowApplyBtn;
+@property (nonatomic, strong) UIButton *flowNativeBtn;
 // 循环
 @property (nonatomic, strong) UIButton *fromBtn;
 @property (nonatomic, strong) UIButton *toBtn;
@@ -130,6 +134,8 @@ static NSString *const kNoteDev =
 - (void)updateKonzetsuMenu;
 - (void)cycleKonzetsu;
 - (void)toggleHideDuringPlay;
+- (void)commitFlow;
+- (void)restoreNativeFlow;
 - (void)toggleKonzetsuEnabled;
 - (void)toggleKonzetsuChallenge;
 - (CGFloat)note:(NSString *)text at:(CGFloat)x y:(CGFloat)y w:(CGFloat)w;
@@ -392,7 +398,27 @@ static NSString *const kNoteDev =
     self.swHideDuringPlay.frame = CGRectMake(cardPad, adaptY + 2 * (rowH + 8), W - cardPad * 2, rowH);
     [self.swHideDuringPlay addTarget:self action:@selector(toggleHideDuringPlay) forControlEvents:UIControlEventTouchUpInside];
     [c1 addSubview:self.swHideDuringPlay];
-    c1.frame = CGRectMake(x0, y, W, adaptY + 3 * rowH + 16 + cardPad);
+    CGFloat flowY = adaptY + 3 * rowH + 24;
+    UILabel *flowTitle = [[UILabel alloc] initWithFrame:CGRectMake(cardPad, flowY, W - cardPad * 2, 16)];
+    flowTitle.text = @"下落流速（实时设置）";
+    flowTitle.textColor = UIColor.whiteColor;
+    flowTitle.font = [UIFont systemFontOfSize:12];
+    [c1 addSubview:flowTitle];
+    self.flowField = [[UITextField alloc] initWithFrame:CGRectMake(cardPad, flowY + 20, W - cardPad * 2 - 128, rowH)];
+    self.flowField.borderStyle = UITextBorderStyleRoundedRect;
+    self.flowField.keyboardType = UIKeyboardTypeDecimalPad;
+    self.flowField.font = [UIFont monospacedDigitSystemFontOfSize:12 weight:UIFontWeightRegular];
+    self.flowField.placeholder = @"0.1–2147483647";
+    [c1 addSubview:self.flowField];
+    self.flowApplyBtn = [self makeActionButton:@"设置"];
+    self.flowApplyBtn.frame = CGRectMake(W - cardPad - 122, flowY + 20, 58, rowH);
+    [self.flowApplyBtn addTarget:self action:@selector(commitFlow) forControlEvents:UIControlEventTouchUpInside];
+    [c1 addSubview:self.flowApplyBtn];
+    self.flowNativeBtn = [self makeActionButton:@"原生"];
+    self.flowNativeBtn.frame = CGRectMake(W - cardPad - 58, flowY + 20, 58, rowH);
+    [self.flowNativeBtn addTarget:self action:@selector(restoreNativeFlow) forControlEvents:UIControlEventTouchUpInside];
+    [c1 addSubview:self.flowNativeBtn];
+    c1.frame = CGRectMake(x0, y, W, flowY + 20 + rowH + cardPad);
     y = [self note:kNotePlayback afterCard:c1 x:x0 y:y w:W] + secGap;
 
     // ============ ② 循环 ============
@@ -907,6 +933,33 @@ static NSString *const kNoteDev =
     [self refresh];
 }
 
+- (void)commitFlow {
+    if (!xrc_rate_adapt_flow_available() || !xrc_cap_gp()) return;
+    NSString *text = [self.flowField.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    NSScanner *scanner = [NSScanner scannerWithString:text ?: @""];
+    double speed = 0; uint64_t units = 0;
+    if (![scanner scanDouble:&speed] || !scanner.isAtEnd || !xrc_live_flow_units(speed, &units)) {
+        [WHToast showMessage:@"请输入 0.1–2147483647 的流速；保留一位小数" duration:1.8 finishHandler:^{}];
+        return;
+    }
+    if (!xrc_rate_adapt_set_manual_flow(speed)) return;
+    xrc_config_t config; xrc_config_load(&config);
+    config.manual_note_flow = xrc_rate_adapt_manual_flow();
+    xrc_config_save(&config);
+    [self.flowField resignFirstResponder];
+    [self refresh];
+    [WHToast showMessage:@"流速已设置，下一安全帧应用；无需重新开局" duration:1.6 finishHandler:^{}];
+}
+- (void)restoreNativeFlow {
+    xrc_rate_adapt_set_manual_flow(0);
+    xrc_config_t config; xrc_config_load(&config);
+    config.manual_note_flow = 0;
+    xrc_config_save(&config);
+    [self.flowField resignFirstResponder];
+    [self refresh];
+    [WHToast showMessage:@"恢复原生流速；倍率适配开关保持原状态" duration:1.6 finishHandler:^{}];
+}
+
 - (void)toggleJudgeTimeLock {
     if (!xrc_judge_is_active() || !xrc_feature_complete("judge_time_lock")) return;
     xrc_config_t cfg; xrc_config_load(&cfg);
@@ -1210,6 +1263,11 @@ static NSString *const kNoteDev =
     self.swRateOffset.enabled = xrc_cap_gp();
     self.swRateFlow.on = xrc_rate_adapt_flow_enabled();
     self.swRateFlow.enabled = xrc_cap_gp() && xrc_rate_adapt_flow_available();
+    self.flowField.enabled = self.flowApplyBtn.enabled = self.flowNativeBtn.enabled = xrc_cap_gp() && xrc_rate_adapt_flow_available();
+    if (!self.flowField.isFirstResponder) {
+        double flow = xrc_rate_adapt_manual_flow();
+        self.flowField.text = flow > 0 ? [NSString stringWithFormat:@"%.1f", flow] : @"";
+    }
     self.swOwn.on      = xrc_brk_unlock_own();
     self.swCb.on       = xrc_brk_cb_bypass();
     self.swNet.on      = xrc_net_enabled();

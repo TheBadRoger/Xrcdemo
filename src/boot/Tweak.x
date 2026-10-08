@@ -328,6 +328,7 @@ static void onAppLaunched(CFNotificationCenterRef center, void *observer,
 static void xrc_apply_switches(void) {
     xrc_rate_adapt_set_offset(g_cfg.rate_adapt_offset);
     xrc_rate_adapt_set_flow(g_cfg.rate_adapt_flow);
+    xrc_rate_adapt_set_manual_flow(g_cfg.manual_note_flow);
     xrc_konzetsu_configure(g_cfg.konzetsu_id, g_cfg.konzetsu_enabled, g_cfg.konzetsu_challenge);
     @try {
         xrc_brk_set_unlock_own(g_cfg.unlock_own);

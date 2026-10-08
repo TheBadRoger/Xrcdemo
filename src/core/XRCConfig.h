@@ -18,6 +18,7 @@ typedef struct {
     BOOL      judge_time_lock;
     BOOL      rate_adapt_offset;
     BOOL      rate_adapt_flow;
+    double    manual_note_flow; // 0 = native; otherwise 0.1..INT32_MAX
     int       konzetsu_id;  // panel choices 1,2,3,4,6
     BOOL      konzetsu_enabled;
     BOOL      konzetsu_challenge; // used only while effects are enabled

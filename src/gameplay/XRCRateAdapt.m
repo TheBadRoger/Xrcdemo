@@ -20,12 +20,14 @@
 extern uint64_t xrc_image_base(void);
 static _Atomic(bool) s_offset_enabled, s_flow_enabled;
 static _Atomic(uint64_t) s_window_ng;
-static _Atomic(uint32_t) s_window_rate = 1000;
+static _Atomic(uint64_t) s_window_factor = XRC_FLOW_WINDOW_DENOM;
+static _Atomic(uint64_t) s_manual_flow;
 static uint64_t s_scene, s_ng, s_clock, s_song;
 static int32_t s_original_offset, s_extra;
 static uint64_t s_node;
 static float s_base_z = 1.0f, s_last_z = 1.0f;
 static bool s_scaled, s_setter_valid;
+static uint64_t s_reported_node, s_reported_manual;
 static void (*s_set_scale_z)(void *, float);
 
 static bool s_read(uint64_t address, void *out, size_t size) {
@@ -62,6 +64,7 @@ void xrc_rate_adapt_install(void) {
     }
     xrc_logi(XRCLC_BOOT, @"practice-adapt v1: flow=1/r offset=r setter=%d window=%d",
              s_setter_valid, xrc_feature_complete("rate_flow"));
+    xrc_logi(XRCLC_BOOT, @"practice-live-flow v1: manual 0.1..INT32_MAX, safe-frame rendering, native settings unchanged");
 }
 void xrc_rate_adapt_set_offset(bool enabled) { atomic_store(&s_offset_enabled, enabled); }
 void xrc_rate_adapt_set_flow(bool enabled) { atomic_store(&s_flow_enabled, enabled); }
@@ -70,6 +73,15 @@ bool xrc_rate_adapt_flow_enabled(void) { return atomic_load(&s_flow_enabled); }
 bool xrc_rate_adapt_flow_available(void) {
     return s_setter_valid && xrc_feature_complete("rate_flow");
 }
+bool xrc_rate_adapt_set_manual_flow(double speed) {
+    uint64_t units = 0;
+    if (speed != 0 && !xrc_live_flow_units(speed, &units)) return false;
+    atomic_store(&s_manual_flow, units);
+    return true;
+}
+double xrc_rate_adapt_manual_flow(void) {
+    return (double)atomic_load(&s_manual_flow) / 10.0;
+}
 int32_t xrc_rate_adapt_offset_extra(void *ng) {
     return (uint64_t)ng == s_ng ? s_extra : 0;
 }
@@ -77,7 +89,7 @@ static void s_flow_frame(void *scene, void *ng) {
     uint64_t node = s_u64((uint64_t)scene + 880);
     uint64_t vtable = node ? s_u64(node) : 0;
     if (!node || vtable != xrc_image_base() + XRC_OFF_RENDER_ROOT_VPTR || !s_setter_valid) {
-        atomic_store(&s_window_rate, 1000);
+        atomic_store(&s_window_factor, XRC_FLOW_WINDOW_DENOM);
         atomic_store(&s_window_ng, 0);
         return;
     }
@@ -89,11 +101,27 @@ static void s_flow_frame(void *scene, void *ng) {
     if (!s_scaled || !xrc_adapt_same_scale(current, s_last_z)) s_base_z = current;
     bool enabled = xrc_rate_adapt_flow_enabled() && xrc_rate_adapt_flow_available();
     double rate = xrc_adapt_rate(xrc_clock_get_rate());
-    float desired = (float)(s_base_z * xrc_adapt_flow_factor(rate, enabled));
+    uint64_t chart = s_u64((uint64_t)ng + 40);
+    float native_flow = 0;
+    // LogicChart stores the actual loaded speed, including native mode rules.
+    // Keep it unchanged: timing distances and existing notes use this baseline.
+    bool valid_flow = chart && s_read(chart + 240, &native_flow, sizeof(native_flow))
+        && isfinite(native_flow) && native_flow > 0;
+    double manual = xrc_rate_adapt_flow_available() && valid_flow ? xrc_rate_adapt_manual_flow() : 0;
+    double scale = xrc_live_flow_factor(valid_flow ? native_flow : 1, manual, rate, enabled);
+    float desired = (float)(s_base_z * scale);
+    if (!isfinite(desired)) return;
     if (!xrc_adapt_same_scale(current, desired)) s_set_scale_z((void *)node, desired);
-    s_last_z = desired; s_scaled = enabled;
+    s_last_z = desired; s_scaled = enabled || manual > 0;
     atomic_store(&s_window_ng, (uint64_t)ng);
-    atomic_store(&s_window_rate, enabled ? (uint32_t)llround(rate * 1000.0) : 1000);
+    atomic_store(&s_window_factor, xrc_live_window_factor(scale));
+    uint64_t request = atomic_load(&s_manual_flow);
+    if ((manual > 0 || s_reported_manual > 0) &&
+        (s_reported_node != node || s_reported_manual != request)) {
+        xrc_logi(XRCLC_BOOT, @"[flow-live] requested=%.1f native=%.6f scale=%.8g available=%d",
+                 xrc_rate_adapt_manual_flow(), native_flow, scale, valid_flow);
+    }
+    s_reported_node = node; s_reported_manual = request;
 }
 void xrc_rate_adapt_frame_begin(void *scene, void *ng) {
     if (!scene || !ng || xrc_gameplay_seek_active()) return;
@@ -130,11 +158,11 @@ void xrc_rate_adapt_window(void *context) {
     if (!uc || !uc->uc_mcontext) return;
     __typeof__(uc->uc_mcontext->__ss) *ss = &uc->uc_mcontext->__ss;
     if (ss->__x[19] != atomic_load(&s_window_ng)) return;
-    uint32_t rate = atomic_load(&s_window_rate);
-    if (rate == 1000) return;
+    uint64_t factor = atomic_load(&s_window_factor);
+    if (factor == XRC_FLOW_WINDOW_DENOM) return;
     uint64_t sp = (uint64_t)__darwin_arm_thread_state64_get_sp(*ss);
     // Common join after both the default and special-scene window paths.
     int32_t *front = (int32_t *)(sp + 0x34), *back = (int32_t *)(sp + 0x38);
-    *front = xrc_adapt_window_units(*front, rate);
-    *back = xrc_adapt_window_units(*back, rate);
+    *front = xrc_live_window(*front, factor);
+    *back = xrc_live_window(*back, factor);
 }
