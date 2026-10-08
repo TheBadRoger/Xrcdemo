@@ -315,20 +315,20 @@ BRK handler 在信号上下文运行。新增逻辑尽量只做受控的寄存�
 
 ```json
 [
-  "adapt_window",
-  "0x10091e620",
-  "0x10146c1b8",
-  "681640f9"
+  "native_flow_note",
+  "0x100865b50",
+  "0x10146c1c0",
+  "00b8a10e"
 ]
 ```
 
 对应运行时宏存的是 image offset，而不是绝对 VA：
 
 ```c
-#undef XRC_BRK_ADAPT_WINDOW_SITE_OFF
-#define XRC_BRK_ADAPT_WINDOW_SITE_OFF (0x91E620ULL)
-#undef XRC_BRK_ADAPT_WINDOW_REPLAY_OFF
-#define XRC_BRK_ADAPT_WINDOW_REPLAY_OFF (0x146C1B8ULL)
+#undef XRC_NATIVE_FLOW_NOTE_SITE_OFF
+#define XRC_NATIVE_FLOW_NOTE_SITE_OFF (0x865B50ULL)
+#undef XRC_NATIVE_FLOW_NOTE_REPLAY_OFF
+#define XRC_NATIVE_FLOW_NOTE_REPLAY_OFF (0x146C1C0ULL)
 ```
 
 复制旧 JSON 作为模板后，应逐项标记待验证。不要因为只发现几项地址变化，就默认其余项均正确。
