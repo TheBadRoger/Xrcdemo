@@ -64,3 +64,10 @@ static inline bool xrc_seek_resume_alignment(bool paused_seen,uint64_t gap_us) {
 static inline bool xrc_audio_stream_restarted(uint32_t position,uint32_t previous) {
     return (uint64_t)position+500<previous;
 }
+
+// Ignore mixer-block quantization while the chart advances smoothly at its rate.
+static inline bool xrc_sync_needs_correction(int32_t chart,int32_t target,double rate,bool force) {
+    double tolerance=12.0*(rate>1.0 && rate<=4.0 ? rate : 1.0);
+    int64_t error=(int64_t)target-chart;
+    return force || error>tolerance || error < -tolerance;
+}

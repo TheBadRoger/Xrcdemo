@@ -100,5 +100,11 @@ int main(void) {
             assert(xrc_seek_chart_target(audio,xrc_seek_runtime_offset(learned,delay,extra))==target);
         }
     }
+    assert(!xrc_sync_needs_correction(1000,1012,1,false));
+    assert(!xrc_sync_needs_correction(1000,1048,4,false));
+    assert(xrc_sync_needs_correction(1000,1013,1,false));
+    assert(xrc_sync_needs_correction(1000,1000,1,true));
+    assert(xrc_sync_needs_correction(INT_MIN,INT_MAX,1,false));
+    assert(xrc_sync_needs_correction(INT_MAX,INT_MIN,1,false));
     return 0;
 }

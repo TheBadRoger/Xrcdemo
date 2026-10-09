@@ -482,7 +482,9 @@ static bool s_resume_align(void *ng,bool refresh_clock) {
     int32_t offset=xrc_seek_runtime_offset(s_sync_offset,
         xrc_seek_output_delay(xrc_audio_effective_rate(),xrc_audio_output_latency_ms()),
         xrc_rate_adapt_offset_extra(ng));
-    xrc_clock_shift_to(ng,xrc_seek_chart_target(audio,offset));
+    int32_t target=xrc_seek_chart_target(audio,offset);
+    if (xrc_sync_needs_correction(xrc_chart_clock_ms(ng),target,xrc_audio_effective_rate(),refresh_clock))
+        xrc_clock_shift_to(ng,target);
 
     return true;
 }
@@ -523,7 +525,6 @@ static void s_gp_retime_logic_clock(void *note_group) {
     int32_t delta_ms = (int32_t)(acc_us / 1000ULL);
     s_retime_rem_us = acc_us % 1000ULL;
     if (delta_ms <= 0) return;
-    if (s_sync_have_calibration && xrc_audio_speed_enabled()) return;
     double rate = xrc_clock_get_rate();
     int32_t adjust = 0;
     if (rate < 0.999 || rate > 1.001) {
@@ -606,7 +607,6 @@ void xrc_gameplay_update(void *self, uint64_t a2, uint64_t a3, uint64_t a4, uint
             }
             xrc_rate_adapt_frame_begin(self, note_group);
             s_gp_retime_logic_clock(note_group);
-            if (!xrc_gameplay_seek_active() && s_sync_have_calibration) s_resume_align(note_group,true);
             s_rate_probe_tick(note_group);      // 音画倍率自测（1 Hz，只读）
             int32_t pos = xrc_chart_clock_ms(note_group);
             // 冻结/收敛窗内钟不是真实播放时间（钉住/落位中）——循环 tick 抑制，
@@ -669,13 +669,11 @@ void xrc_gameplay_update(void *self, uint64_t a2, uint64_t a3, uint64_t a4, uint
     }
     // 音乐变速：低频去重 tick —— 速度变了/换歌了/组刚建才动作。
     // 放这里是因为 gp.update 是唯一"进对局后每帧都在跑"的点，面板不开时也有效。
-    @try { xrc_audio_speed_tick(); } @catch (NSException *e) {}
     if (s_orig_gp_update) {
         s_orig_gp_update(self, a2, a3, a4, a5);
         if (self) atomic_fetch_add(&s_native_update_sequence,1);
     }
-    // Native update refreshes clock fields. Reconcile afterwards so those writes
-    // cannot undo the alignment in the same frame or add rebuild elapsed time.
+    // Reconcile drift after the native update without copying mixer-block steps every frame.
     if (self && atomic_load(&xrc_gp_instance) == self) {
         void *ng = *(void **)((char *)self + XRC_GP_NOTEGROUP_OFF);
         s_capture_sync_calibration(self, ng);

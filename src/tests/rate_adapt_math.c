@@ -4,7 +4,7 @@ int main(void) {
     const double rates[] = {0.25, 0.5, 0.75, 1, 2, 4};
     for (unsigned i=0; i<sizeof(rates)/sizeof(rates[0]); ++i) {
         double r=rates[i];
-        assert(fabs(xrc_adapt_flow_factor(r,true)*r-1)<1e-8);
+        assert(fabs(xrc_adapt_flow_factor(r,true)-r)<1e-8);
         assert(fabs((100+xrc_adapt_offset_extra(100,r,true))/r-100)<1e-8);
         assert(fabs((-100+xrc_adapt_offset_extra(-100,r,true))/r+100)<1e-8);
         assert(xrc_adapt_offset_extra(100,r,false)==0);
@@ -36,15 +36,15 @@ int main(void) {
         assert(xrc_flow_write_value(100,native)==100);
         assert(xrc_flow_write_value(0,native)==native);
     }
-    assert(xrc_flow_value(50,0.5,true)==100);
-    assert(xrc_flow_value(50,2,true)==25);
-    assert(xrc_flow_value(50,0.75,true)==67);
+    assert(xrc_flow_value(50,0.5,true)==25);
+    assert(xrc_flow_value(50,2,true)==100);
+    assert(xrc_flow_value(50,0.75,true)==38);
     assert(xrc_flow_value(50,0.5,false)==50);
     assert(xrc_flow_value(0,0.5,true)==0);
-    assert(xrc_flow_value(INT_MAX,0.05,true)==INT_MAX);
+    assert(xrc_flow_value(INT_MAX,4,true)==INT_MAX);
     for (int i=0;i<1000;++i) {
         int base=50;
-        assert(xrc_flow_value(base,i%2 ? 0.5 : 2,true)==(i%2 ? 100 : 25));
+        assert(xrc_flow_value(base,i%2 ? 0.5 : 2,true)==(i%2 ? 25 : 100));
         assert(xrc_flow_value(base,1,true)==50);
     }
     return 0;

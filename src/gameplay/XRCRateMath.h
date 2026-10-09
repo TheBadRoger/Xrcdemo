@@ -8,7 +8,7 @@ static inline double xrc_adapt_rate(double rate) {
     return isfinite(rate) && rate >= 0.01 && rate <= 4.0 ? rate : 1.0;
 }
 static inline double xrc_adapt_flow_factor(double rate, bool enabled) {
-    return enabled ? 1.0 / xrc_adapt_rate(rate) : 1.0;
+    return enabled ? xrc_adapt_rate(rate) : 1.0;
 }
 // Native chart time subtracts the user's offset. To retain O real milliseconds
 // at rate r, the internal offset is r*O; the extra clock base is (r-1)*O.
@@ -31,7 +31,7 @@ static inline bool xrc_live_flow_units(double speed, uint64_t *units) {
 // Round the actual native highspeed_int value; never scale render intermediates.
 static inline int32_t xrc_flow_value(int32_t base,double rate,bool adapt) {
     if (base<=0) return 0;
-    double result=adapt ? base/xrc_adapt_rate(rate) : base;
+    double result=adapt ? base*xrc_adapt_rate(rate) : base;
     if (result>=INT_MAX) return INT_MAX;
     return result<1 ? 1 : (int32_t)floor(result+0.5);
 }

@@ -92,8 +92,9 @@ void xrc_rate_adapt_native_tick(void) {
     }
     s_update_desired();
     int32_t desired=atomic_load(&s_desired_units);
+    if (!desired) return;
     uint64_t p=s_settings();int32_t current=0;
-    if (!p || !desired || !s_read(p+12,&current,4) || current==desired) return;
+    if (!p || !s_read(p+12,&current,4) || current==desired) return;
     s_set_flow((void *)p,desired);
     if (!s_read(p+12,&current,4) || current!=desired)
         xrc_logw(XRCLC_BOOT,@"[flow-native] value write mismatch desired=%d actual=%d",desired,current);
@@ -123,21 +124,23 @@ double xrc_rate_adapt_base_flow(void) {
 double xrc_rate_adapt_native_flow(void) { return s_native_units()/10.0; }
 int32_t xrc_rate_adapt_offset_extra(void *ng) { return (uint64_t)ng==s_ng ? s_extra : 0; }
 void xrc_rate_adapt_frame_begin(void *scene,void *ng) {
-    xrc_rate_adapt_native_tick();
     if (!scene || !ng || xrc_gameplay_seek_active()) return;
-    uint64_t clock=s_u64((uint64_t)ng+XRC_CLOCK_IN_NOTEGROUP_OFF);
-    uint64_t song=s_u64((uint64_t)scene+728);
+    // These objects belong to the current native update; avoid Mach IPC per field per frame.
+    uint64_t clock=*(uint64_t *)((char *)ng+XRC_CLOCK_IN_NOTEGROUP_OFF);
+    uint64_t song=*(uint64_t *)((char *)scene+728);
     if (!clock) return;
     if (s_scene!=(uint64_t)scene || s_ng!=(uint64_t)ng || s_clock!=clock || s_song!=song) {
         s_scene=(uint64_t)scene;s_ng=(uint64_t)ng;s_clock=clock;s_song=song;s_extra=0;
+        xrc_rate_adapt_native_tick();
     }
     // The stored chart speed is the same native value (not a distance/geometry factor).
     int32_t desired=atomic_load(&s_desired_units);
-    uint64_t chart=s_u64((uint64_t)ng+40);
-    float current=0,speed=desired/10.0f;
-    if (desired>0 && chart && s_read(chart+240,&current,4) && isfinite(current) && current!=speed)
-        *(float *)(chart+240)=speed;
-    s_original_offset=s_preference_offset();
+    uint64_t chart=*(uint64_t *)((char *)ng+40);
+    if (desired>0 && chart) {
+        float current=*(float *)(chart+240), speed=desired/10.0f;
+        if (isfinite(current) && current!=speed) *(float *)(chart+240)=speed;
+    }
+    s_original_offset=xrc_rate_adapt_offset_enabled() ? s_preference_offset() : 0;
     int32_t desired_offset=xrc_adapt_offset_extra(s_original_offset,xrc_clock_get_rate(),
                                                   xrc_rate_adapt_offset_enabled());
     // Music-enabled gameplay applies offset and DSP delay together in one absolute write.
