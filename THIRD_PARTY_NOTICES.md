@@ -10,17 +10,24 @@
   缩放模块与部分配置结构（如 `speedKeys` 等键位）仍然衍生自它。
 - 许可：MIT License，Copyright (c) 2020 brendonjkding
 
-## 2. WHToast — toast UI 库（`vendor/WHToast/`）
+## 2. WHToast — toast UI 库（`src/vendor/WHToast/`）
 
 - 项目：https://github.com/remember17/WHToast
 - 许可：MIT License，Copyright (c) 2018 wuhao
-  （单份副本：`vendor/WHToast/LICENSE`）
+  （单份副本：`src/vendor/WHToast/LICENSE`）
 
-## 3. fishhook — 符号重绑定库（`vendor/fishhook/`）
+## 3. fishhook — 符号重绑定库（`src/vendor/fishhook/`）
 
 - 项目：https://github.com/facebook/fishhook
 - 许可：BSD 3-Clause License，Copyright (c) 2013, Facebook, Inc.
-  （许可全文亦随源码文件 `vendor/fishhook/fishhook.h` 头部提供）
+  （许可全文亦随源码文件 `src/vendor/fishhook/fishhook.h` 头部提供）
+
+## 4. Signalsmith Stretch / Linear — 实时音乐频谱处理
+
+- 项目：https://github.com/Signalsmith-Audio/signalsmith-stretch 和 https://github.com/Signalsmith-Audio/linear
+- 许可：MIT，Copyright (c) Geraint Luff / Signalsmith Audio；完整声明见组件 LICENSE.txt。
+- 固定源码版本及构建后端：`src/vendor/signalsmith-stretch/README.md`。
+- 许可全文：`src/vendor/signalsmith-stretch/LICENSE.txt`、`src/vendor/signalsmith-stretch/signalsmith-linear/LICENSE.txt`。
 
 ---
 

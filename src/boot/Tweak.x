@@ -338,7 +338,7 @@ static void xrc_apply_switches(void) {
     @catch (NSException *e) { xrc_logw(XRCLC_BOOT, @"cb flag EX: %@", e); }
     @try { xrc_judge_set_autoplay(g_cfg.autoplay); }
     @catch (NSException *e) { xrc_logw(XRCLC_BOOT, @"autoplay flag EX: %@", e); }
-    // 音乐变速：BGM 跟随速度 + FMOD 内置移调 DSP 保音高；关 = 只 warp 谱面时钟
+    // 音乐变速：BGM 跟随速度 + Signalsmith 实时频谱拉伸 保音高；关 = 只 warp 谱面时钟
     @try { xrc_audio_speed_set_enabled(g_cfg.speed_audio); }
     @catch (NSException *e) { xrc_logw(XRCLC_BOOT, @"speed audio flag EX: %@", e); }
     // 日志档位：配置优先；缺省 INFO + 全部类别。

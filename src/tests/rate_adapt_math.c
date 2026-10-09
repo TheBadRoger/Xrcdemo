@@ -58,13 +58,26 @@ int main(void) {
     for (unsigned i=0;i<24;++i) geometry[i]=(float)(i+1);
     for (unsigned n=0;n<100;++n) {
         double factor=n%2 ? 0.5 : 2.0;
-        xrc_arc_flow_geometry(changed,geometry,factor);
+        xrc_arc_flow_geometry(changed,geometry,geometry,factor,false);
         for (unsigned i=0;i<24;++i)
             assert(changed[i]==(i%3==2 ? geometry[i]*factor : geometry[i]));
-        // Simulate native clipping, then return to 1x from the original shape.
-        changed[0]=900; changed[2]=0;
-        xrc_arc_flow_geometry(changed,geometry,1.0);
-        for (unsigned i=0;i<24;++i) assert(changed[i]==geometry[i]);
+        // Native clipping changes all head coordinates, including mesh corners.
+        for (unsigned i=0;i<24;++i) {
+            unsigned record=i/3;
+            if (record==0 || (record>=2 && record<=4)) changed[i]=-(float)(i+n+1);
+        }
+        // Changing rate during a long arc must retain the clipped head, while
+        // tails always derive from the baseline (including a return to 1x).
+        for (unsigned r=0;r<sizeof(rates)/sizeof(rates[0]);++r) {
+            factor=1.0/rates[r];
+            xrc_arc_flow_geometry(changed,geometry,changed,factor,true);
+            for (unsigned i=0;i<24;++i) {
+                unsigned record=i/3;
+                bool head=record==0 || (record>=2 && record<=4);
+                assert(changed[i]==(head ? -(float)(i+n+1) :
+                    i%3==2 ? geometry[i]*factor : geometry[i]));
+            }
+        }
     }
     // Always compute from native baseline, never multiply the previous result.
     float native=1;

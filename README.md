@@ -18,13 +18,13 @@ Arcaea iOS 练习插件，提供变速、进度跳转、循环练习、判定调
 
 ## 快速开始
 
-1. 准备版本匹配、已解密且满足插件兼容条件的 App，解压到 `ios/Payload/Arc-mobile.app/`，保留原始备份。
-2. 在 [Actions](https://github.com/TheBadRoger/Xrcdemo/actions) 构建，下载对应游戏版本的产物，将两个 dylib 放到项目根目录。
+1. 准备版本匹配、已解密且满足插件兼容条件的 App，解压到 `host/static/Payload/Arc-mobile.app/`，保留原始备份。
+2. 在 [Actions](https://github.com/TheBadRoger/Xrcdemo/actions) 构建，用 `host/deployment/fetch-plugin.py` 拉取对应游戏版本的产物，保存在 `host/deployment/target-bin/plugins/`。
 3. 在项目根目录运行：
 
    ```sh
    python inject.py --stub --brk --profile release
-   python inject.py --check ios/Payload/Arc-mobile.app/Arc-mobile
+   python inject.py --check host/deployment/target-bin/main/Arc-mobile
    ```
 
 4. 按 [安装方式](docs/installation.md) 打包、重新签名并安装。已有配套 IPA 时可直接从签名步骤开始。
@@ -36,6 +36,7 @@ Arcaea iOS 练习插件，提供变速、进度跳转、循环练习、判定调
 | --- | --- |
 | [插件功能](docs/features.md) | 面板操作、默认设置、功能范围 |
 | [实现原理](docs/architecture.md) | 注入结构、时钟与音频同步、版本适配 |
+| [实时音乐倍速](docs/decisions/001-realtime-audio-stretch.md) | 音频算法、处理延迟与实机验证要求 |
 | [安装方式](docs/installation.md) | 构建、部署、签名、cb 导入及故障排查 |
 | [版本适配](docs/version-adaptation.md) | 新游戏版本的定位、配置、接口核对、构建与验收指南 |
 

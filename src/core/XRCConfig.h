@@ -40,7 +40,7 @@ typedef struct {
                             //   与 cb 下载都物理落在 Documents，可由「文件」App/电脑直接管理。
                             //   关：不做任何迁移（已建好的软链不会自动撤销）。
     // ---- 音乐变速（XRCAudio）----
-    BOOL      speed_audio;  // 开（默认）：BGM 跟着游戏速度走且**保持音高**（FMOD 内置移调 DSP 补偿）。
+    BOOL      speed_audio;  // 开（默认）：BGM 跟着游戏速度走且**保持音高**（Signalsmith 实时频谱拉伸 补偿）。
                             //   关：只 warp 谱面时钟（速度快时音画会逐渐错开）。
     // ---- 自动演奏（功能账 §5）----
     BOOL      autoplay;     // 开（默认关）：一切判定强制 Pure（含漏扫 ts=-1 直调）

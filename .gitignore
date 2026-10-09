@@ -8,9 +8,10 @@ ci-artifacts/
 xrc_build_stamp.h
 xrc_patch_manifest.json
 .ccache/
-ios/
+host/
 ui-mock/_*.m
 ui-mock/_*.tmp
+resources
 
 # Local build outputs and downloaded dependencies
 out/

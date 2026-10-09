@@ -1,5 +1,5 @@
 // Arc clipping changes its CPU geometry and hides segments in one direction.
-// Restore a canonical mesh before native clipping; never scale scene nodes.
+// Scale canonical tails while preserving native head clipping and visibility.
 #import <Foundation/Foundation.h>
 #include <mach/mach.h>
 #include <stdlib.h>
@@ -14,7 +14,7 @@
 extern uint64_t xrc_image_base(void);
 #define ARC_SLOTS 4096
 #define ARC_CHILD_LIMIT 131072
-typedef struct { uint64_t node, vtable; float original[24]; bool visible; } segment_t;
+typedef struct { uint64_t node, vtable; float original[24]; } segment_t;
 typedef struct {
     uint64_t render, logic, begin, end;
     int32_t start_ms, end_ms;
@@ -85,11 +85,8 @@ static void capture(uint64_t render) {
     segment_t *segments=calloc(count,sizeof(*segments)); if (!segments) return;
     for (size_t i=0;i<count;++i) {
         segment_t *s=&segments[i]; s->node=read64(begin+i*8); s->vtable=read64(s->node);
-        uint8_t visible=0;
-        if (s->vtable!=xrc_image_base()+XRC_ARC_FLOW_SEGMENT_VPTR || !read_mem(s->node+0x2b4,s->original,sizeof(s->original)) ||
-            !read_mem(s->node+0x1c1,&visible,1)) { free(segments); return; }
+        if (s->vtable!=xrc_image_base()+XRC_ARC_FLOW_SEGMENT_VPTR || !read_mem(s->node+0x2b4,s->original,sizeof(s->original))) { free(segments); return; }
         for (size_t j=0;j<24;++j) if (!isfinite(s->original[j])) { free(segments); return; }
-        s->visible=visible!=0;
     }
     *arc=(arc_t){render,logic,begin,end,times[0],times[1],segments,count,1.0,true}; s_children+=count;
 }
@@ -113,21 +110,16 @@ void xrc_arc_flow_frame(void *scene,double factor,int chart_ms) {
         uint64_t cb=0,ce=0;
         if (!children(arc->render,&cb,&ce)) continue;
         if (cb!=arc->begin || ce!=arc->end) { capture(arc->render); continue; }
-        // Future arcs need work only on factor change. Active arcs must undo the
-        // previous frame's clipping before the native renderer clips again.
+        // Future arcs scale as a whole; active heads retain native clipping.
         for (size_t j=0;j<arc->count;++j) {
             segment_t *s=&arc->segments[j];
             if (read64(cb+j*8)!=s->node || read64(s->node)!=s->vtable) continue;
             float target[24],current[24];
-            xrc_arc_flow_geometry(target,s->original,factor);
             if (!read_mem(s->node+0x2b4,current,sizeof(current))) continue;
+            xrc_arc_flow_geometry(target,s->original,current,factor,chart_ms>=arc->start_ms);
             if (memcmp(current,target,sizeof(target))) {
                 memcpy((void *)(s->node+0x2b4),target,sizeof(target));
                 s_mesh((void *)s->node); // updates native vertex buffers, not node scale
-            }
-            if (s->visible && !*(uint8_t *)(s->node+0x1c1)) {
-                *(uint8_t *)(s->node+0x1c1)=1;
-                *(uint32_t *)(s->node+0x130)|=0x31;
             }
         }
         arc->factor=factor;

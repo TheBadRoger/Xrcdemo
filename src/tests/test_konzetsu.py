@@ -1,3 +1,7 @@
+import sys
+from pathlib import Path
+sys.path.insert(0,str(Path(__file__).resolve().parents[2]))
+
 import os
 import shutil
 import struct
@@ -11,7 +15,7 @@ from unittest import mock
 from pathlib import Path
 import inject
 
-ROOT=Path(__file__).resolve().parents[1]
+ROOT=Path(__file__).resolve().parents[2]
 NAMES={'konzetsu_chart','konzetsu_id','konzetsu_active','konzetsu_score','konzetsu_hpbar','konzetsu_info'}
 
 class KonzetsuTests(unittest.TestCase):
@@ -64,7 +68,7 @@ class KonzetsuTests(unittest.TestCase):
             self.skipTest('C compiler unavailable locally; macOS workflow runs this test')
         with tempfile.TemporaryDirectory() as temp:
             output=Path(temp)/('konzetsu.exe' if os.name=='nt' else 'konzetsu')
-            subprocess.run([compiler,'-I'+str(ROOT/'src/gameplay'),str(ROOT/'tests/konzetsu_math.c'),'-o',str(output)],check=True,capture_output=True,text=True)
+            subprocess.run([compiler,'-I'+str(ROOT/'src/gameplay'),str(ROOT/'src/tests/konzetsu_math.c'),'-o',str(output)],check=True,capture_output=True,text=True)
             subprocess.run([str(output)],check=True,capture_output=True,text=True)
 
     def test_command_resolves_game_version_before_feature_selection(self):

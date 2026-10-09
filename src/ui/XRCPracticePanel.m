@@ -40,7 +40,7 @@
 // 说明文本（ⓘ 展开时逐区展示；开关各自的说明在 XRCSwitchRow.note，长按弹出）
 static NSString *const kNotePlayback =
     @"时间轴拖动=跳转；−5s/+5s 按当前速度缩放（5000×speed）；滑杆=速度。\n"
-    @"音乐变速=让 BGM 跟着速度走并保持音高（FMOD 通道速率 + 内置移调 DSP 补偿延迟）；"
+    @"音乐变速=让 BGM 跟着速度走并保持音高（FMOD 源时钟 + 实时高质量拉伸 补偿延迟）；"
     @"关掉则只改谱面时钟，速度快时音画会逐渐错开。\n"
     @"每次回拖都会恢复音符。重置成绩=开启时回拖清空成绩，关闭时保留成绩。";
 static NSString *const kNoteLoop =
@@ -1067,7 +1067,7 @@ static NSString *const kNoteDev =
     xrc_logd(XRCLC_UI, @"cb 外置 → %s ｜ %@", c.external_cb ? "on" : "off", xrc_store_cb_status());
 }
 
-// 音乐变速：开 = BGM 跟着速度走且保音高（FMOD 通道速率 + 内置移调 DSP）；
+// 音乐变速：开 = BGM 跟着速度走且保音高（FMOD 源时钟 + 实时高质量拉伸）；
 // 关 = 立刻把音高复位到 1.0（只 warp 谱面时钟）。
 - (void)toggleSpeedAudio {
     xrc_config_t c; xrc_config_load(&c);

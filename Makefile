@@ -22,6 +22,7 @@ xrcdemo_FILES += src/gameplay/XRCGameplay.m
 xrcdemo_FILES += src/gameplay/XRCClock.m
 xrcdemo_FILES += src/gameplay/XRCPlayer.m
 xrcdemo_FILES += src/gameplay/XRCAudio.m
+xrcdemo_FILES += src/gameplay/XRCAudioStretch.mm
 xrcdemo_FILES += src/gameplay/XRCJudge.m
 xrcdemo_FILES += src/gameplay/XRCRateAdapt.m
 xrcdemo_FILES += src/gameplay/XRCArcFlow.m
@@ -37,13 +38,15 @@ xrcdemo_FILES += src/ui/XRCFloatButton.m
 xrcdemo_FILES += src/ui/XRCTimelineView.m
 xrcdemo_FILES += src/ui/XRCSwitchRow.m
 xrcdemo_FILES += src/ui/XRCPracticePanel.m
-xrcdemo_FILES += vendor/fishhook/fishhook.c
-xrcdemo_FILES += $(wildcard vendor/WHToast/*.m)
+xrcdemo_FILES += src/vendor/fishhook/fishhook.c
+xrcdemo_FILES += $(wildcard src/vendor/WHToast/*.m)
 
 xrcdemo_CFLAGS  += -fobjc-arc
 xrcdemo_CFLAGS += -Isrc/core -Isrc/gameplay -Isrc/content -Isrc/diag -Isrc/ui
-xrcdemo_CFLAGS += -Ivendor -Ivendor/fishhook
+xrcdemo_CFLAGS += -Isrc/vendor -Isrc/vendor/fishhook
 xrcdemo_CFLAGS += -DXRC_DEBUG_BUILD=$(XRC_DEBUG)
+xrcdemo_CCFLAGS += -std=c++17 -O3 -DSIGNALSMITH_USE_ACCELERATE
+xrcdemo_FRAMEWORKS += Accelerate
 
 xrcdemo_LIBRARIES = substrate
 xrcdemo_LOGOSFLAGS = -c generator=MobileSubstrate

@@ -1,3 +1,7 @@
+import sys
+from pathlib import Path
+sys.path.insert(0,str(Path(__file__).resolve().parents[2]))
+
 import os
 import shutil
 import subprocess
@@ -11,7 +15,7 @@ import contextlib
 import io
 from unittest import mock
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 class RateAdaptTests(unittest.TestCase):
     def tearDown(self):
@@ -66,7 +70,7 @@ class RateAdaptTests(unittest.TestCase):
             self.skipTest("C compiler unavailable; macOS build runs this test")
         with tempfile.TemporaryDirectory() as temp:
             output=Path(temp)/("adapt.exe" if os.name=="nt" else "adapt")
-            args=[compiler,"-I"+str(ROOT/"src/gameplay"),str(ROOT/"tests/rate_adapt_math.c"),"-o",str(output)]
+            args=[compiler,"-I"+str(ROOT/"src/gameplay"),str(ROOT/"src/tests/rate_adapt_math.c"),"-o",str(output)]
             if os.name != "nt": args.append("-lm")
             subprocess.run(args,check=True,capture_output=True,text=True)
             subprocess.run([str(output)],check=True,capture_output=True,text=True)

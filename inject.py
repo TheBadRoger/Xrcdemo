@@ -29,9 +29,10 @@ import struct
 import sys
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-APP = os.path.join(ROOT, "ios", "Payload", "Arc-mobile.app")
-MAIN = os.path.join(APP, "Arc-mobile")
-FW_DIR = os.path.join(APP, "Frameworks")
+APP = os.path.join(ROOT, "host", "static", "Payload", "Arc-mobile.app")
+MAIN = os.path.join(ROOT, "host", "deployment", "target-bin", "main", "Arc-mobile")
+DEPLOY_DIR = os.path.join(ROOT, "host", "deployment")
+PLUGIN_DIR = os.path.join(DEPLOY_DIR, "target-bin", "plugins")
 DYLIB_NAMES = ["libxrcdemo.dylib", "libellekit.dylib"]
 INJECT_NAME = "@rpath/libxrcdemo.dylib"
 
@@ -284,6 +285,19 @@ def select_bundle_profile(main_path: str) -> None:
     if os.path.isfile(path):
         with open(path, "rb") as handle:
             version = plistlib.load(handle).get("CFBundleShortVersionString", "")
+    preparation = os.path.join(os.path.dirname(os.path.abspath(main_path)), "preparation.json")
+    if os.path.isfile(preparation):
+        import json
+        with open(preparation, encoding="utf-8") as handle:
+            prepared_version = json.load(handle)["game_version"]
+        if os.path.isfile(path) and prepared_version != version:
+            raise RuntimeError("Main preparation and Info.plist version mismatch")
+        version = prepared_version
+    if os.path.abspath(main_path) == os.path.abspath(os.path.join(DEPLOY_DIR, "target-bin", "main", "Arc-mobile")) and os.path.isfile(preparation):
+        with open(os.path.join(APP, "Info.plist"), "rb") as handle:
+            resource_version = plistlib.load(handle)["CFBundleShortVersionString"]
+        if resource_version != version:
+            raise RuntimeError("Main/resources version mismatch")
     configure_profile(version)
     print(f"[i] game address profile: {ACTIVE_GAME_VERSION}")
 
@@ -811,21 +825,26 @@ def patch_flow_runtime(data: bytearray, enabled: bool, patches=None) -> list[str
 
 
 def find_dylibs() -> list[str]:
-    candidates = [ROOT,
-                  os.path.join(ROOT, "ci-artifacts", f"libxrcdemo-sideload-{ACTIVE_GAME_VERSION}"),
-                  os.path.join(ROOT, "ci-artifacts", "libxrcdemo-sideload")]
-    found = []
-    for name in DYLIB_NAMES:
-        path = None
-        for d in candidates:
-            p = os.path.join(d, name)
-            if os.path.isfile(p):
-                path = p
-                break
-        if not path:
-            raise FileNotFoundError(f"dylib missing: {name} (ROOT or ci-artifacts/)")
-        found.append(path)
-    return found
+    """Only use the verified active plugin set; never select old root/CI artifacts."""
+    import json
+    import hashlib
+    paths = [os.path.join(PLUGIN_DIR, name) for name in DYLIB_NAMES]
+    for path in paths:
+        if not os.path.isfile(path):
+            raise FileNotFoundError(f"dylib missing: {path}; run host/deployment/fetch-plugin.py")
+    record_path = os.path.join(PLUGIN_DIR, "build.json")
+    if not os.path.isfile(record_path):
+        raise FileNotFoundError(f"plugin build record missing: {record_path}")
+    with open(record_path, encoding="utf-8") as handle:
+        record = json.load(handle)
+    if record.get("version") != ACTIVE_GAME_VERSION:
+        raise RuntimeError("Plugin/main version mismatch")
+    for path, key in zip(paths, ("library_sha256", "ellekit_sha256")):
+        with open(path, "rb") as handle:
+            actual = hashlib.sha256(handle.read()).hexdigest()
+        if record.get(key) != actual:
+            raise RuntimeError(f"Plugin hash mismatch: {os.path.basename(path)}")
+    return paths
 
 
 def check_binary(path: str) -> int:
@@ -944,7 +963,7 @@ def main():
             print(f"    [{mark}] {_n}")
     try:
         dylibs = find_dylibs()
-    except FileNotFoundError as e:
+    except (FileNotFoundError, RuntimeError) as e:
         print(f"[!] {e}")
         sys.exit(1)
 
@@ -1016,12 +1035,6 @@ def main():
             print("    for renamed ids / moved packs. Refusing to mix.")
             sys.exit(3)
 
-    os.makedirs(FW_DIR, exist_ok=True)
-    for d in dylibs:
-        dst = os.path.join(FW_DIR, os.path.basename(d))
-        shutil.copy2(d, dst)
-        print(f"[+] copied -> {dst}")
-
     # ATS 豁免：私服走明文 HTTP，必须放开（否则请求被静默拦截）
     try:
         for line in patch_ats():
@@ -1088,8 +1101,10 @@ def main():
             print(f"[!] gates: {e}")
             sys.exit(1)
 
-    with open(MAIN, "wb") as f:
+    temporary_main = MAIN + ".partial"
+    with open(temporary_main, "wb") as f:
         f.write(data)
+    os.replace(temporary_main, MAIN)
 
     size = os.path.getsize(MAIN)
     with open(MAIN, "rb") as f:
@@ -1179,9 +1194,25 @@ def main():
         "dylibs": dylib_info,
     }
 
-    mpath = os.path.join(ROOT, "xrc_patch_manifest.json")
+    mpath = os.path.join(DEPLOY_DIR, "patch.json")
+    os.makedirs(DEPLOY_DIR, exist_ok=True)
     with open(mpath, "w", encoding="utf-8") as mf:
         _json.dump(manifest, mf, ensure_ascii=False, indent=2)
+    preparation_path = os.path.join(os.path.dirname(MAIN), "preparation.json")
+    preparation = {}
+    if os.path.isfile(preparation_path):
+        with open(preparation_path, encoding="utf-8") as handle:
+            preparation = _json.load(handle)
+    preparation.update(output=os.path.abspath(MAIN), game_version=ACTIVE_GAME_VERSION,
+                       prepared_sha256=_hashlib.sha256(cur).hexdigest(), signed=False,
+                       device_verified=False)
+    required = [b"practice-timing v1", b"practice-adapt v1", b"practice-native-flow v2",
+                b"konzetsu-practice v1", b"autoplay-eve v1", b"chain-guard v1"]
+    preparation["required_library_markers"] = [value.decode() for value in required if value in plugin_bytes]
+    preparation.setdefault("source_sha256", preparation["prepared_sha256"])
+    with open(preparation_path + ".partial", "w", encoding="utf-8") as handle:
+        _json.dump(preparation, handle, ensure_ascii=False, indent=2)
+    os.replace(preparation_path + ".partial", preparation_path)
     print(f"[i] patch manifest -> {mpath}")
     print(f"[i] applied: stub={do_stub} brk={do_brk} gates={do_gates} "
           f"brk_sites={len(manifest['brk_sites'])} features={manifest.get('features_desc')}")

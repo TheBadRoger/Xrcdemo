@@ -58,7 +58,7 @@ xrcdemo/
   inject.py
   libxrcdemo.dylib
   libellekit.dylib
-  ios/Payload/Arc-mobile.app/
+  host/static/Payload/Arc-mobile.app/
     Arc-mobile
     Info.plist
     Frameworks/
@@ -66,7 +66,7 @@ xrcdemo/
 
 ```sh
 python inject.py --stub --brk --profile release
-python inject.py --check ios/Payload/Arc-mobile.app/Arc-mobile
+python inject.py --check host/deployment/target-bin/main/Arc-mobile
 ```
 
 版本从 `Info.plist` 读取，必须匹配动态库。默认发布功能包含判定锁定、倍率流速适配、链保护、cb 处理和自动演奏站点；7.0.256 还包含 Konzetsu。站点存在不代表面板开关已开启。
@@ -122,7 +122,7 @@ Pop-Location
 
 Python 会使用磁盘权限；如来源解压工具没有保留可执行标记，应使用设置 ZIP Unix 执行权限的打包器，或在 macOS 整理后打包。打包后检查条目唯一性、CRC、主程序和动态库哈希，并核对用户修改的资源未被旧文件覆盖。
 
-本地 `ios/deployment` 中的专用打包脚本仅用于当前样本，整个目录受 Git 忽略，不属于克隆仓库后即可使用的公共工具。已有配套 IPA 时无需重复注入。
+本地 `host/deployment` 中的专用打包脚本仅用于当前样本，整个目录受 Git 忽略，不属于克隆仓库后即可使用的公共工具。已有配套 IPA 时无需重复注入。
 
 ## 6. 签名与安装
 
@@ -137,7 +137,7 @@ Python 会使用磁盘权限；如来源解压工具没有保留可执行标记�
 本工作区已有交互签名脚本，密码由本人输入：
 
 ```powershell
-.\ios\deployment\sign.ps1 -IpaPath ".\ios\deployment\你的未签名包.ipa"
+.\host\deployment\sign.ps1 -IpaPath ".\host\deployment\你的未签名包.ipa"
 ```
 
 该脚本和证书不随 Git 发布。其他环境按 [zsign](https://github.com/zhlynn/zsign)的参数要求准备签名工具；不要把证书密码写入仓库或共享命令记录。
@@ -192,10 +192,10 @@ Documents/
 | 图标 | 开关保存、游玩隐藏、退出恢复 |
 | 内容 | 文件共享、cb 外置、热更新状态与歌曲资源 |
 
-回归测试命令：`python -m unittest discover -s tests -v`。测试、安装、启动和完整功能验收是不同阶段。
+回归测试命令：`python -m unittest discover -s src/tests -v`。测试、安装、启动和完整功能验收是不同阶段。
 
 ## 提交与发布
 
-游戏样本和产物保留在本地 `ios/Payload`、`ios/deployment`；`.gitignore` 忽略这些目录及 IPA、动态库、签名材料、设备日志。提交时只选择源码、版本配置、测试与文档，不把本地资源、分析文件或第三方工具带入仓库。
+游戏样本和产物保留在本地 `host/static/Payload`、`host/deployment`；`.gitignore` 忽略这些目录及 IPA、动态库、签名材料、设备日志。提交时只选择源码、版本配置、测试与文档，不把本地资源、分析文件或第三方工具带入仓库。
 
 检查 `git diff --cached --stat` 和 `git diff --cached --check` 后再提交推送。需要新插件产物时，确认 Actions 测试与对应版本构建成功，再部署、签名和验收。

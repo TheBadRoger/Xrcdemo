@@ -133,20 +133,13 @@
 
 // ---------------- FMOD：音乐变速用到的入口 ----------------
 // 出处：FMOD 静态链入本二进制，各 API 自带调试串（`ChannelControl::addDSP` 等）→ 字符串 xref 定位。
-//   路线：直接用 **FMOD 内置移调 DSP**：
-//     ① setPitch(BGM 组, rate) 让音乐跟着速度走（音高随动）
-//     ② 组上挂内置 Pitch Shifter，参数 1/rate 把音高补回来 ⇒ 时长随速度、音高不变
-//     ③ 移调 DSP 有固有延迟（≈FFT 窗），把通道位置前移 rate·L 补偿
-//   类型号**不写死**：运行时枚举 createDSPByType + DSP::getInfo 取名字含 "Pitch" 者（XRCAudio.m）。
+// FMOD 保留源时钟，自定义 Signalsmith DSP 负责保音高；延迟取算法报告值。
+// createDSP 位于 createDSPByType 前 0x128；removeDSP 位于 addDSP 后 0x130。
+// 两版本入口均核对序言和对应 API 调试串，ABI 布局见 XRCAudioStretch.mm。
 #define XRC_OFF_FMOD_CC_SET_PITCH      (0x10E32F8ULL)   // ChannelControl::setPitch(cc, float)（乘数语义）
 #define XRC_OFF_FMOD_CC_ADD_DSP        (0x10E5194ULL)   // ChannelControl::addDSP(cc, index, dsp)
-#define XRC_OFF_FMOD_CREATE_DSP_BY_TYPE (0x10ABA64ULL)  // System::createDSPByType(sys, type, &dsp)
-#define XRC_OFF_FMOD_DSP_SET_PARAM_FLOAT (0x1063D74ULL) // DSP::setParameterFloat(dsp, index, value)（C API 3 参）
-// ⚠ **调试串 xref 的地址不是函数入口**：以 xref 地址（getParameterFloat +0x128 /
-//   getInfo +0x158）调用会进函数中段 ⇒ 序言没跑 + 出参写到栈上 ⇒ __stack_chk_fail 崩
-//   （首次变速、DSP 探测阶段）。以下地址均已回查函数起始。
-#define XRC_OFF_FMOD_DSP_GET_PARAM_FLOAT (0x1064210ULL) // DSP::getParameterFloat(dsp, idx, &v, valuestr, valuestrlen)（**5 参**）
-#define XRC_OFF_FMOD_DSP_GET_INFO      (0x1064C70ULL)   // DSP::getInfo(dsp, &name, &ver, &ch, &cw, &chh)（**6 参**）
+#define XRC_OFF_FMOD_CC_REMOVE_DSP     (0x10E52C4ULL)   // ChannelControl::removeDSP(cc, dsp)
+#define XRC_OFF_FMOD_CREATE_DSP        (0x10AB93CULL)   // System::createDSP(sys, description, &dsp)
 #define XRC_OFF_FMOD_DSP_RELEASE       (0x1062658ULL)   // DSP::release(dsp)（1 参）
 #define XRC_OFF_CH_SET_POSITION        (0x1033A94ULL)   // Channel::setPosition(ch, pos, unit)
 #define XRC_PLAYER_BGM_GROUP_OFF       (0x18)           // AudioProviderFMODiOS + 0x18 = mainBGMGroup 句柄

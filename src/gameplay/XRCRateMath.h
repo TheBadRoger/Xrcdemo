@@ -41,9 +41,15 @@ static inline float xrc_native_flow_distance(float value, double factor) {
     return (float)result;
 }
 // Eight native Vec3 records: two endpoints and six derived mesh corners.
-static inline void xrc_arc_flow_geometry(float out[24],const float original[24],double factor) {
-    for (unsigned i=0;i<24;++i)
-        out[i]=i%3==2 ? xrc_native_flow_distance(original[i],factor) : original[i];
+static inline void xrc_arc_flow_geometry(float out[24],const float original[24],
+                                         const float current[24],double factor,bool active) {
+    for (unsigned i=0;i<24;++i) {
+        unsigned record=i/3;
+        // Native clipping owns the head endpoint and its three mesh corners.
+        bool head=record==0 || (record>=2 && record<=4);
+        out[i]=active && head ? current[i] :
+            i%3==2 ? xrc_native_flow_distance(original[i],factor) : original[i];
+    }
 }
 // Widen only candidate lookup for slow flow; native visible thresholds stay intact.
 static inline float xrc_native_flow_candidate(float index, float window, double factor,

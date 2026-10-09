@@ -1,8 +1,10 @@
 # 游戏版本适配指南
 
-[返回 README](../README.md) · [插件功能](features.md) · [实现原理](architecture.md) · [安装方式](installation.md)
+[返回 README](../README.md) · [插件功能](features.md) · [实现原理](architecture.md) · [安装方式](installation.md) · [**改动点总表（静态焊改/数据改动逐条）**](modifications-7.0.256.md)
 
 本指南说明如何把现有练习插件迁移到新的 Arcaea iOS 版本。以当前 7.0.255 / 7.0.256 的实现为依据，涵盖定位、配置、代码调整、构建、部署和验收。
+
+逐条改动清单（目的 / 位置 / 旧字节 → 新字节 / 换版本重定位锚点）见 [改动点总表](modifications-7.0.256.md)。
 
 **适配不是只填一个 JSON。** JSON 描述注入位置；运行时还依赖函数接口、对象布局、指令语义、版本分支和功能处理器。地址相同或指纹匹配，都不能单独证明行为兼容。
 
@@ -76,8 +78,8 @@
 PowerShell 记录示例：
 
 ```powershell
-Get-FileHash -Algorithm SHA256 .\ios\Payload\Arc-mobile.app\Arc-mobile
-python -c "import plistlib; p=plistlib.load(open('ios/Payload/Arc-mobile.app/Info.plist','rb')); print(p.get('CFBundleShortVersionString'), p.get('CFBundleVersion'), p.get('CFBundleExecutable'))"
+Get-FileHash -Algorithm SHA256 .\host\deployment\target-bin\main\Arc-mobile
+python -c "import plistlib; p=plistlib.load(open('host/static/Payload/Arc-mobile.app/Info.plist','rb')); print(p.get('CFBundleShortVersionString'), p.get('CFBundleVersion'), p.get('CFBundleExecutable'))"
 ```
 
 ### 3.2 建议的定位记录表
@@ -369,7 +371,7 @@ BRK handler 在信号上下文运行。新增逻辑尽量只做受控的寄存�
 
 ```sh
 python -m json.tool profiles/ios_N.json
-python -m unittest discover -s tests -v
+python -m unittest discover -s src/tests -v
 git diff --check
 ```
 
@@ -404,7 +406,7 @@ Windows 本地显示 C 测试跳过时，不是完整验证。以 macOS 的完�
 
 ```sh
 python inject.py --stub --brk --profile release
-python inject.py --check ios/Payload/Arc-mobile.app/Arc-mobile
+python inject.py --check host/deployment/target-bin/main/Arc-mobile
 ```
 
 | 结果 | 处理 |
@@ -417,7 +419,7 @@ python inject.py --check ios/Payload/Arc-mobile.app/Arc-mobile
 
 从副本打包，保持用户资源，去除分析数据库、日志、旧签名及不需要的扩展。cb 热更新按实际容器布局单独部署，不重复装入 IPA。随后重新签名并安装，完整步骤见 [安装方式](installation.md)。
 
-本地 `ios/deployment` 的专用打包和签名脚本可能固定了样本版本、预期哈希或产物名称。新版本需要同步这些本地参数；不能把上一个版本的已准备主程序副本直接装进新包。
+本地 `host/deployment` 的专用打包和签名脚本可能固定了样本版本、预期哈希或产物名称。新版本需要同步这些本地参数；不能把上一个版本的已准备主程序副本直接装进新包。
 
 ## 13. 真机验收顺序
 
