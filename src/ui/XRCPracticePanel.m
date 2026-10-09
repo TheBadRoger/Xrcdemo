@@ -342,10 +342,13 @@ static NSString *const kNoteDev =
     y += secH + 4;
     UIView *c1 = [self cardAt:x0 y:y w:W];
     self.timeline = [[XRCTimelineView alloc] initWithFrame:CGRectMake(cardPad, cardPad, W - cardPad * 2, 34)];
+    __weak XRCPracticePanel *weakPanel=self;
     self.timeline.onScrubBegin = ^BOOL {
-        [self captureFrozenFrame];
+        XRCPracticePanel *panel=weakPanel;
+        if (!panel) return NO;
+        [panel captureFrozenFrame];
         BOOL started=xrc_gameplay_scrub_begin();
-        if (!started) [self releaseFrozenFrame];
+        if (!started) [panel releaseFrozenFrame];
         return started;
     };
     self.timeline.onScrubCancel = ^{
@@ -355,7 +358,7 @@ static NSString *const kNoteDev =
     self.timeline.onScrub = ^(uint32_t ms, BOOL finished) {
         if (finished && !xrc_gameplay_request(XRC_OP_SEEK, ms)) {
             xrc_gameplay_scrub_cancel();
-            [self releaseFrozenFrame];
+            [weakPanel releaseFrozenFrame];
             [WHToast showMessage:@"当前场景不能跳转，请进入谱面后重试" duration:1.6 finishHandler:^{}];
         }
     };
