@@ -32,16 +32,17 @@ int main(void) {
     assert(!xrc_live_flow_units(NAN,&units));
     assert(!xrc_live_flow_units(0,&units));
     assert(!xrc_live_flow_units(-1,&units));
-    // Both UIs write actual units; rebasing must preserve that exact value.
+    // Runtime scaling never changes the shared 1x setting.
+    int shared=50;
+    const int expected[]={13,25,38,50,100,200};
     for (unsigned i=0;i<sizeof(rates)/sizeof(rates[0]);++i) {
-        for (int value=1;value<=200;++value) {
-            double base=xrc_flow_base_for_value(value,rates[i],true);
-            assert(xrc_flow_value(base,rates[i],true)==value);
-            assert(xrc_flow_base_for_value(value,rates[i],false)==value);
-        }
+        assert(xrc_flow_value(shared,rates[i],true)==expected[i]);
+        assert(xrc_flow_value(shared,rates[i],false)==50);
     }
-    assert(xrc_flow_value(xrc_flow_base_for_value(1,4,true),4,true)==1);
-    assert(xrc_flow_value(xrc_flow_base_for_value(INT_MAX,0.05,true),0.05,true)==INT_MAX);
+    shared=70; // either interface edits the same 1x baseline
+    assert(xrc_flow_value(shared,0.5,true)==35);
+    assert(xrc_flow_value(shared,2,true)==140);
+    assert(xrc_flow_value(shared,2,false)==70);
     assert(xrc_flow_value(50,0.5,true)==25);
     assert(xrc_flow_value(50,2,true)==100);
     assert(xrc_flow_value(50,0.75,true)==38);

@@ -53,7 +53,6 @@ static void s_ensure_defaults(NSMutableDictionary *p) {
     if (!p[@"judgeTimeLock"]) p[@"judgeTimeLock"] = @NO;
     if (!p[@"rateAdaptOffset"]) p[@"rateAdaptOffset"] = @NO;
     if (!p[@"rateAdaptFlow"]) p[@"rateAdaptFlow"] = @NO;
-    [p removeObjectForKey:@"manualNoteFlow"]; // Native Preferences is the sole flow setting.
     if (!p[@"konzetsuId"]) p[@"konzetsuId"] = @1;
     if (!p[@"konzetsuEnabled"]) p[@"konzetsuEnabled"] = @NO;
     if (!p[@"konzetsuChallenge"]) p[@"konzetsuChallenge"] = @NO;

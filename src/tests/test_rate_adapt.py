@@ -63,7 +63,7 @@ class RateAdaptTests(unittest.TestCase):
                 with mock.patch.object(inject,'MAIN',str(main)),mock.patch.object(inject.sys,'argv',['inject.py','--brk','--features','rate_flow']),mock.patch.object(inject,'find_dylibs',return_value=[str(lib)]),mock.patch.object(inject.shutil,'copy2') as copy,contextlib.redirect_stdout(output):
                     with self.assertRaises(SystemExit) as error: inject.main()
                     self.assertEqual(error.exception.code,3)
-                    self.assertIn('practice-shared-flow v1',output.getvalue())
+                    self.assertIn('practice-shared-flow v2',output.getvalue())
                     copy.assert_not_called()
                 self.assertEqual(main.read_bytes(),before)
 
