@@ -258,7 +258,8 @@ static NSString *const kNoteDev =
 // 分频刷新：高频（位置/时长/速度）10Hz；低频（开关镜像/状态行/判定/能力）1Hz。
 - (void)tick {
     if (!xrc_gameplay_seek_active() &&
-        xrc_gameplay_update_sequence()>self.frozenUpdateSequence) [self releaseFrozenFrame];
+        (xrc_gameplay_update_sequence()>self.frozenUpdateSequence || !xrc_gameplay_is_active()))
+        [self releaseFrozenFrame];
     [self refreshFast];
     if (++self.lowTick >= 10) { self.lowTick = 0; [self refreshSlow]; }
 }
