@@ -90,7 +90,6 @@ static NSString *const kNoteDev =
 @property (nonatomic, strong) XRCSwitchRow *swRateFlow;
 @property (nonatomic, strong) XRCSwitchRow *swHideDuringPlay;
 @property (nonatomic, strong) UITextField *flowField;
-@property (nonatomic, strong) UIButton *flowApplyBtn;
 // 循环
 @property (nonatomic, strong) UIButton *fromBtn;
 @property (nonatomic, strong) UIButton *toBtn;
@@ -425,7 +424,7 @@ static NSString *const kNoteDev =
     self.swRateOffset.frame = CGRectMake(cardPad, adaptY, W - cardPad * 2, rowH);
     [self.swRateOffset addTarget:self action:@selector(toggleRateOffset) forControlEvents:UIControlEventTouchUpInside];
     [c1 addSubview:self.swRateOffset];
-    self.swRateFlow = [[XRCSwitchRow alloc] initWithTitle:@"锁定基准流速"];
+    self.swRateFlow = [[XRCSwitchRow alloc] initWithTitle:@"倍率适应基准流速"];
     self.swRateFlow.note = @"开启时按原值÷当前倍率换算并锁定；关闭立即恢复原值。";
     self.swRateFlow.frame = CGRectMake(cardPad, adaptY + rowH + 8, W - cardPad * 2, rowH);
     [self.swRateFlow addTarget:self action:@selector(toggleRateFlow) forControlEvents:UIControlEventTouchUpInside];
@@ -441,16 +440,13 @@ static NSString *const kNoteDev =
     flowTitle.textColor = UIColor.whiteColor;
     flowTitle.font = [UIFont systemFontOfSize:12];
     [c1 addSubview:flowTitle];
-    self.flowField = [[UITextField alloc] initWithFrame:CGRectMake(cardPad, flowY + 20, W - cardPad * 2 - 64, rowH)];
+    self.flowField = [[UITextField alloc] initWithFrame:CGRectMake(cardPad, flowY + 20, W - cardPad * 2, rowH)];
     self.flowField.borderStyle = UITextBorderStyleRoundedRect;
     self.flowField.keyboardType = UIKeyboardTypeDecimalPad;
     self.flowField.font = [UIFont monospacedDigitSystemFontOfSize:12 weight:UIFontWeightRegular];
     self.flowField.placeholder = @"0.1–214748364.7";
     [c1 addSubview:self.flowField];
-    self.flowApplyBtn = [self makeActionButton:@"设置"];
-    self.flowApplyBtn.frame = CGRectMake(W - cardPad - 58, flowY + 20, 58, rowH);
-    [self.flowApplyBtn addTarget:self action:@selector(commitFlow) forControlEvents:UIControlEventTouchUpInside];
-    [c1 addSubview:self.flowApplyBtn];
+    [self.flowField addTarget:self action:@selector(commitFlow) forControlEvents:UIControlEventEditingDidEnd];
     c1.frame = CGRectMake(x0, y, W, flowY + 20 + rowH + cardPad);
     y = [self note:kNotePlayback afterCard:c1 x:x0 y:y w:W] + secGap;
 
@@ -967,7 +963,7 @@ static NSString *const kNoteDev =
 }
 
 - (void)commitFlow {
-    if (!xrc_rate_adapt_flow_available() || !xrc_cap_gp()) return;
+    if (!xrc_rate_adapt_flow_available() || !xrc_cap_gp() || xrc_rate_adapt_flow_enabled()) return;
     NSString *text = [self.flowField.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
     NSScanner *scanner = [NSScanner scannerWithString:text ?: @""];
     double speed = 0; uint64_t units = 0;
@@ -1047,7 +1043,7 @@ static NSString *const kNoteDev =
     } while (0)
 
 - (void)toggleRateOffset { XRC_TOGGLE_SWITCH(rate_adapt_offset, xrc_rate_adapt_set_offset, @"偏移适配：开，下个安全帧生效", @"偏移适配：关，恢复原偏移"); }
-- (void)toggleRateFlow { XRC_TOGGLE_SWITCH(rate_adapt_flow, xrc_rate_adapt_set_flow, @"基准流速：已按当前倍率换算并锁定", @"基准流速：已解锁并恢复原值"); }
+- (void)toggleRateFlow { [self.flowField resignFirstResponder]; XRC_TOGGLE_SWITCH(rate_adapt_flow, xrc_rate_adapt_set_flow, @"基准流速：已按当前倍率换算并锁定", @"基准流速：已解锁并恢复原值"); }
 - (void)toggleOwn      { XRC_TOGGLE_SWITCH(unlock_own, xrc_brk_set_unlock_own, @"拥有链：三层恒真（覆盖未授予场景）", @"拥有链：恢复原判定"); }
 - (void)toggleCb       { XRC_TOGGLE_SWITCH(cb_bypass,  xrc_brk_set_cb_bypass,  @"cb 自由化：校验恒通过 + 清树禁用", @"cb 校验：恢复原行为"); }
 - (void)toggleResetScore   { XRC_TOGGLE_SWITCH(reset_score, xrc_replay_set_reset_score, @"回拖时重置成绩", @"回拖时保留成绩"); }
@@ -1291,7 +1287,7 @@ static NSString *const kNoteDev =
     self.swRateFlow.note = xrc_rate_adapt_flow_available() ?
         @"开启时按原值÷当前倍率换算并锁定；关闭立即恢复原值。" :
         @"当前主程序缺少完整流速钩子或版本校验失败，请更新配套主程序。";
-    self.flowField.enabled = self.flowApplyBtn.enabled = xrc_cap_gp() && xrc_rate_adapt_flow_available() && !xrc_rate_adapt_flow_enabled();
+    self.flowField.enabled = xrc_cap_gp() && xrc_rate_adapt_flow_available() && !xrc_rate_adapt_flow_enabled();
     if (!self.flowField.isFirstResponder) {
         double flow = xrc_rate_adapt_native_flow();
         self.flowField.text = flow > 0 ? [NSString stringWithFormat:@"%.1f", flow] : @"";
