@@ -3,6 +3,12 @@
 #include <assert.h>
 
 int main(void) {
+    assert(!xrc_seek_resume_alignment(false,16667));
+    assert(!xrc_seek_resume_alignment(false,200000));
+    assert(xrc_seek_resume_alignment(false,200001));
+    assert(xrc_seek_resume_alignment(true,16667));
+    assert(xrc_seek_resume_alignment(false,60000000));
+
     assert(xrc_seek_can_resume(true,1,2,3,1,2,3));
     assert(!xrc_seek_can_resume(false,1,2,3,1,2,3));
     assert(!xrc_seek_can_resume(true,1,2,3,4,2,3));

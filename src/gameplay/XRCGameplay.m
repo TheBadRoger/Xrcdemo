@@ -36,6 +36,8 @@ static void *s_gp_last_clock = NULL;
 static uint64_t s_gp_last_real_us = 0;
 // retime 的两个分数余量：任何一环按整数截断，累积起来都会变成"越到后面越不同步"。
 static uint64_t s_retime_rem_us = 0;    // 微秒→毫秒的余量
+static bool s_native_pause_seen;
+static unsigned s_resume_align_frames;
 static double   s_retime_acc    = 0.0;  // (1−rate)·delta 的小数余量
 
 // ---- deferred 操作状态机 ----
@@ -465,14 +467,46 @@ int32_t xrc_chart_clock_ms(void *note_group) {
     return v - *(int32_t *)((char *)clk + XRC_CLK_BASE_OFF) + off;
 }
 
+static bool s_resume_align(void *ng,bool refresh_clock) {
+    void *scene=atomic_load(&xrc_gp_instance), *player=xrc_player_get();
+    if (!ng || !xrc_audio_speed_enabled() || !s_sync_have_calibration ||
+        scene!=s_sync_scene || ng!=s_sync_ng || player!=s_sync_player) return false;
+    void *clock=*(void **)((char *)ng+XRC_CLOCK_IN_NOTEGROUP_OFF);
+    if (clock!=s_sync_clock) return false;
+    uint32_t audio=0;
+    if (!xrc_player_read_position(player,&audio)) return false;
+    if (refresh_clock) {
+        extern uint64_t xrc_image_base(void);
+        ((void (*)(void *))(xrc_image_base()+XRC_OFF_CLOCK_TICK))(clock);
+    }
+    int32_t offset=xrc_seek_runtime_offset(s_sync_offset,
+        xrc_seek_output_delay(xrc_audio_effective_rate(),xrc_audio_output_latency_ms()),
+        xrc_rate_adapt_offset_extra(ng));
+    xrc_clock_shift_to(ng,xrc_seek_chart_target(audio,offset));
+    xrc_audio_alignment_acknowledged();
+    return true;
+}
 // ---- gp.update retime（6.13 语义）----
 static void s_gp_retime_logic_clock(void *note_group) {
     if (!note_group) return;
-    if (xrc_clock_freeze_count() > 0) return;
+    if (xrc_clock_freeze_count() > 0 || s_hold) return;
     void *clk = *(void **)((char *)note_group + XRC_CLOCK_IN_NOTEGROUP_OFF);
     if (!clk) return;
     uint64_t now_us = xrc_real_now_us();
     if (!now_us) return;
+    if (clk!=s_gp_last_clock) { s_native_pause_seen=false; s_resume_align_frames=0; }
+    bool paused=false;
+    if (xrc_player_read_paused(xrc_player_get(),&paused) && paused) {
+        s_native_pause_seen=true; s_gp_last_clock=clk; s_gp_last_real_us=now_us;
+        s_retime_rem_us=0; s_retime_acc=0; return;
+    }
+    uint64_t gap=s_gp_last_real_us && now_us>s_gp_last_real_us ? now_us-s_gp_last_real_us : 0;
+    if (clk==s_gp_last_clock && xrc_seek_resume_alignment(s_native_pause_seen,gap)) {
+        s_native_pause_seen=false; s_gp_last_real_us=now_us;
+        s_retime_rem_us=0; s_retime_acc=0;
+        s_resume_align_frames=s_resume_align(note_group,true) ? 2 : 0;
+        return;
+    }
     if (clk != s_gp_last_clock || s_gp_last_real_us == 0 || now_us <= s_gp_last_real_us) {
         s_gp_last_clock = clk;
         s_gp_last_real_us = now_us;
@@ -539,6 +573,8 @@ static void s_rate_probe_tick(void *note_group) {
 }
 
 static _Atomic(uint64_t) s_last_gameplay_frame;
+static _Atomic(uint64_t) s_native_update_sequence;
+uint64_t xrc_gameplay_update_sequence(void) { return atomic_load(&s_native_update_sequence); }
 bool xrc_gameplay_is_active(void) {
     uint64_t last = atomic_load(&s_last_gameplay_frame);
     uint64_t now = xrc_real_now_us();
@@ -624,7 +660,10 @@ void xrc_gameplay_update(void *self, uint64_t a2, uint64_t a3, uint64_t a4, uint
     // 放这里是因为 gp.update 是唯一"进对局后每帧都在跑"的点，面板不开时也有效。
     @try { xrc_audio_speed_tick(); } @catch (NSException *e) {}
     if (self) xrc_rate_adapt_native_begin(*(void **)((char *)self + XRC_GP_NOTEGROUP_OFF));
-    if (s_orig_gp_update) s_orig_gp_update(self, a2, a3, a4, a5);
+    if (s_orig_gp_update) {
+        s_orig_gp_update(self, a2, a3, a4, a5);
+        if (self) atomic_fetch_add(&s_native_update_sequence,1);
+    }
     xrc_rate_adapt_frame_end(self, NULL);
     // Native update refreshes clock fields. Reconcile afterwards so those writes
     // cannot undo the alignment in the same frame or add rebuild elapsed time.
@@ -633,6 +672,12 @@ void xrc_gameplay_update(void *self, uint64_t a2, uint64_t a3, uint64_t a4, uint
         xrc_rate_adapt_frame_end(self, ng);
         s_capture_sync_calibration(self, ng);
         s_frz_tick(ng);
+        if (!xrc_gameplay_seek_active() && s_resume_align_frames) {
+            if (s_resume_align(ng,false)) --s_resume_align_frames;
+            else s_resume_align_frames=0;
+            s_gp_last_real_us=xrc_real_now_us();
+            s_retime_rem_us=0; s_retime_acc=0;
+        }
         if (!xrc_gameplay_seek_active() && s_sync_reconcile_frames) {
             uint32_t confirmed_audio=0;
             if (s_seek_context_valid(ng) && xrc_player_read_position(s_seek_player,&confirmed_audio)) {

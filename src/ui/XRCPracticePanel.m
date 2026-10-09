@@ -75,6 +75,8 @@ static NSString *const kNoteDev =
 @property (nonatomic, strong) UIScrollView *body;
 @property (nonatomic, assign) CGFloat contentHeight;
 @property (nonatomic, strong) NSTimer *timer;
+@property (nonatomic, strong) UIView *frozenFrame;
+@property (nonatomic, assign) uint64_t frozenUpdateSequence;
 @property (nonatomic, assign) BOOL infoOn;         // ⓘ 说明模式
 @property (nonatomic, assign) NSInteger lowTick;   // 低频刷新分频计数
 // 播放
@@ -229,7 +231,24 @@ static NSString *const kNoteDev =
              panelW, h, self.contentHeight, (int)self.infoOn);
 }
 
+- (void)releaseFrozenFrame {
+    [self.frozenFrame removeFromSuperview]; self.frozenFrame=nil;
+}
+- (void)captureFrozenFrame {
+    if (self.frozenFrame || !self.superview) return;
+    UIView *parent=self.superview;
+    // Capture the last submitted GPU frame before gameplay stops drawing.
+    UIView *source=self.window.rootViewController.view ?: parent;
+    UIView *frame=[source snapshotViewAfterScreenUpdates:NO];
+    if (!frame) return;
+    frame.frame=[source convertRect:source.bounds toView:parent];
+    frame.autoresizingMask=UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    frame.userInteractionEnabled=NO;
+    [parent insertSubview:frame belowSubview:self]; self.frozenFrame=frame;
+    self.frozenUpdateSequence=xrc_gameplay_update_sequence();
+}
 - (void)hide {
+    [self releaseFrozenFrame];
     xrc_gameplay_scrub_cancel();
     [self.timer invalidate]; self.timer = nil;
     [self removeFromSuperview];
@@ -238,6 +257,8 @@ static NSString *const kNoteDev =
 
 // 分频刷新：高频（位置/时长/速度）10Hz；低频（开关镜像/状态行/判定/能力）1Hz。
 - (void)tick {
+    if (!xrc_gameplay_seek_active() &&
+        xrc_gameplay_update_sequence()>self.frozenUpdateSequence) [self releaseFrozenFrame];
     [self refreshFast];
     if (++self.lowTick >= 10) { self.lowTick = 0; [self refreshSlow]; }
 }
@@ -320,11 +341,20 @@ static NSString *const kNoteDev =
     y += secH + 4;
     UIView *c1 = [self cardAt:x0 y:y w:W];
     self.timeline = [[XRCTimelineView alloc] initWithFrame:CGRectMake(cardPad, cardPad, W - cardPad * 2, 34)];
-    self.timeline.onScrubBegin = ^BOOL { return xrc_gameplay_scrub_begin(); };
-    self.timeline.onScrubCancel = ^{ xrc_gameplay_scrub_cancel(); };
+    self.timeline.onScrubBegin = ^BOOL {
+        [self captureFrozenFrame];
+        BOOL started=xrc_gameplay_scrub_begin();
+        if (!started) [self releaseFrozenFrame];
+        return started;
+    };
+    self.timeline.onScrubCancel = ^{
+        xrc_gameplay_scrub_cancel();
+        // The timer removes the snapshot after the next native drawing update.
+    };
     self.timeline.onScrub = ^(uint32_t ms, BOOL finished) {
         if (finished && !xrc_gameplay_request(XRC_OP_SEEK, ms)) {
             xrc_gameplay_scrub_cancel();
+            [self releaseFrozenFrame];
             [WHToast showMessage:@"当前场景不能跳转，请进入谱面后重试" duration:1.6 finishHandler:^{}];
         }
     };

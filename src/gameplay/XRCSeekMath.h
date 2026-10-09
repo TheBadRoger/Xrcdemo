@@ -61,3 +61,8 @@ static inline bool xrc_seek_can_resume(bool owned,uint64_t scene,uint64_t player
     return owned && scene && player && group && scene==current_scene &&
         player==current_player && group==current_group;
 }
+
+// A native pause or a suspended update loop must not be extrapolated at the rate.
+static inline bool xrc_seek_resume_alignment(bool paused_seen,uint64_t gap_us) {
+    return paused_seen || gap_us>200000ULL;
+}

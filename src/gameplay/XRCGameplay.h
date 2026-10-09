@@ -68,3 +68,5 @@ uint64_t xrc_gameplay_seek_result(bool *success);
 bool xrc_gameplay_scrub_begin(void);
 void xrc_gameplay_scrub_cancel(void);
 void xrc_gameplay_set_rate(double rate);
+
+uint64_t xrc_gameplay_update_sequence(void);
