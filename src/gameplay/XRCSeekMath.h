@@ -71,3 +71,11 @@ static inline bool xrc_sync_needs_correction(int32_t chart,int32_t target,double
     int64_t error=(int64_t)target-chart;
     return force || error>tolerance || error < -tolerance;
 }
+
+// 1x playback needs event alignment only; FMOD positions advance in mixer blocks.
+typedef struct { uint64_t checked; double rate; int32_t delay,extra; bool valid; } xrc_sync_poll_t;
+static inline bool xrc_sync_poll_due(const xrc_sync_poll_t *p,uint64_t now,double rate,
+                                     int32_t delay,int32_t extra,bool force) {
+    if (force || !p->valid || rate!=p->rate || delay!=p->delay || extra!=p->extra) return true;
+    return rate!=1.0 && (now<p->checked || now-p->checked>=500000ULL);
+}

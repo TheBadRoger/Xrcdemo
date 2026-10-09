@@ -69,6 +69,7 @@ static void *s_applied_group;
 static void *s_stream_channel,*s_stream_sound,*s_scene;
 static uint64_t s_scene_song;
 static uint32_t s_stream_position;
+static uint64_t s_stream_checked_us;
 static _Atomic(uint64_t) s_stream_generation;
 static atomic_bool s_enabled = true;
 
@@ -91,7 +92,7 @@ void xrc_audio_begin_scene(void *scene,uint64_t song) {
     if (scene==s_scene && song==s_scene_song) return;
     s_release_dsp();
     xrc_logi(XRCLC_BOOT,@"practice-audio-sync v2: fresh scene, chart owns DSP delay; no implicit source seeks");
-    s_scene=scene;s_scene_song=song;s_applied_group=NULL;
+    s_scene=scene;s_scene_song=song;s_applied_group=NULL;s_stream_checked_us=0;
     xrc_stretch_reset();atomic_fetch_add(&s_stream_generation,1);
 }
 uint64_t xrc_audio_stream_generation(void) { return atomic_load(&s_stream_generation); }
@@ -142,7 +143,13 @@ void xrc_audio_speed_tick(void) {
     double rate = atomic_load(&s_enabled) ? xrc_clock_get_rate() : 1.0;
 
     void *player=xrc_player_get();
-    void *channel=xrc_player_current_channel(player), *sound=xrc_player_current_sound(player);
+    void *channel=xrc_player_current_channel(player);
+    uint64_t now=xrc_real_now_us();
+    // Parameter/channel changes are immediate; unchanged stream health is a 10Hz check.
+    if (rate==s_applied_rate && group==s_applied_group && channel==s_stream_channel &&
+        s_stream_checked_us && now>=s_stream_checked_us && now-s_stream_checked_us<100000ULL) return;
+    s_stream_checked_us=now;
+    void *sound=xrc_player_current_sound(player);
     uint32_t position=0;
     bool readable=xrc_player_read_position(player,&position);
     bool restarted=readable && xrc_audio_stream_restarted(position,s_stream_position);

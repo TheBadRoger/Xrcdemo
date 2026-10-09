@@ -106,5 +106,18 @@ int main(void) {
     assert(xrc_sync_needs_correction(1000,1000,1,true));
     assert(xrc_sync_needs_correction(INT_MIN,INT_MAX,1,false));
     assert(xrc_sync_needs_correction(INT_MAX,INT_MIN,1,false));
+    xrc_sync_poll_t poll={1000000,1.0,0,0,true};
+    for (uint64_t t=1000000;t<60000000;t+=8333)
+        assert(!xrc_sync_poll_due(&poll,t,1.0,0,0,false));
+    assert(xrc_sync_poll_due(&poll,1000001,1.0,0,0,true)); // native resume
+    assert(xrc_sync_poll_due(&poll,1000001,1.0,24,0,false)); // DSP attached
+    assert(xrc_sync_poll_due(&poll,1000001,1.0,0,50,false)); // offset changed
+    assert(xrc_sync_poll_due(&poll,1000001,0.5,0,0,false)); // rate changed
+    poll.rate=0.5;
+    assert(!xrc_sync_poll_due(&poll,1499999,0.5,0,0,false));
+    assert(xrc_sync_poll_due(&poll,1500000,0.5,0,0,false));
+    assert(xrc_sync_poll_due(&poll,1,0.5,0,0,false)); // clock retreat
+    poll.valid=false;
+    assert(xrc_sync_poll_due(&poll,1000001,1.0,0,0,false)); // new chart
     return 0;
 }

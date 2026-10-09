@@ -157,6 +157,7 @@ static bool s_sync_have_calibration;
 static void *s_sync_clock;
 static uint64_t s_sync_song,s_sync_stream;
 static xrc_sync_samples_t s_sync_samples;
+static xrc_sync_poll_t s_sync_poll;
 static double s_sync_sample_rate;
 static int32_t s_sync_sample_delay, s_sync_sample_extra;
 static uint64_t s_sync_probe_until, s_sync_probe_last;
@@ -329,6 +330,7 @@ static void s_capture_sync_calibration(void *scene,void *ng) {
         s_sync_song!=song || s_sync_stream!=stream) {
         s_sync_scene=scene; s_sync_ng=ng; s_sync_player=player; s_sync_clock=clock;
         s_sync_song=song;s_sync_stream=stream;
+        s_sync_poll=(xrc_sync_poll_t){0};
         s_sync_have_calibration=false; s_sync_samples=(xrc_sync_samples_t){0};
     }
     if (s_sync_have_calibration) return;
@@ -471,6 +473,13 @@ static bool s_resume_align(void *ng,bool refresh_clock) {
         scene!=s_sync_scene || ng!=s_sync_ng || player!=s_sync_player) return false;
     void *clock=*(void **)((char *)ng+XRC_CLOCK_IN_NOTEGROUP_OFF);
     if (clock!=s_sync_clock) return false;
+    double rate=xrc_audio_effective_rate();
+    int32_t delay=xrc_seek_output_delay(rate,xrc_audio_output_latency_ms());
+    int32_t extra=xrc_rate_adapt_offset_extra(ng);
+    bool changed=refresh_clock || !s_sync_poll.valid || rate!=s_sync_poll.rate ||
+                 delay!=s_sync_poll.delay || extra!=s_sync_poll.extra;
+    uint64_t now=xrc_real_now_us();
+    if (!xrc_sync_poll_due(&s_sync_poll,now,rate,delay,extra,refresh_clock)) return false;
     uint32_t audio=0;bool paused=false;
     if (s_sync_stream!=xrc_audio_stream_generation() ||
         (xrc_player_read_paused(player,&paused) && paused) ||
@@ -479,11 +488,10 @@ static bool s_resume_align(void *ng,bool refresh_clock) {
         extern uint64_t xrc_image_base(void);
         ((void (*)(void *))(xrc_image_base()+XRC_OFF_CLOCK_TICK))(clock);
     }
-    int32_t offset=xrc_seek_runtime_offset(s_sync_offset,
-        xrc_seek_output_delay(xrc_audio_effective_rate(),xrc_audio_output_latency_ms()),
-        xrc_rate_adapt_offset_extra(ng));
+    s_sync_poll=(xrc_sync_poll_t){now,rate,delay,extra,true};
+    int32_t offset=xrc_seek_runtime_offset(s_sync_offset,delay,extra);
     int32_t target=xrc_seek_chart_target(audio,offset);
-    if (xrc_sync_needs_correction(xrc_chart_clock_ms(ng),target,xrc_audio_effective_rate(),refresh_clock))
+    if (xrc_sync_needs_correction(xrc_chart_clock_ms(ng),target,rate,changed))
         xrc_clock_shift_to(ng,target);
 
     return true;
@@ -496,6 +504,12 @@ static void s_gp_retime_logic_clock(void *note_group) {
     if (!clk) return;
     uint64_t now_us = xrc_real_now_us();
     if (!now_us) return;
+    // At native speed with no compensation, let the native clock and pause own playback.
+    if (xrc_clock_get_rate()==1.0 && xrc_rate_adapt_offset_extra(note_group)==0 &&
+        xrc_audio_output_latency_ms()==0) {
+        s_native_pause_seen=false; s_gp_last_clock=clk; s_gp_last_real_us=now_us;
+        s_retime_rem_us=0; s_retime_acc=0; return;
+    }
     if (clk!=s_gp_last_clock) { s_native_pause_seen=false; }
     bool paused=false;
     if (xrc_player_read_paused(xrc_player_get(),&paused) && paused) {
@@ -602,6 +616,7 @@ void xrc_gameplay_update(void *self, uint64_t a2, uint64_t a3, uint64_t a4, uint
             uint64_t song=*(uint64_t *)((char *)self+728);
             if (s_sync_scene!=self || s_sync_ng!=note_group || s_sync_clock!=clock ||
                 s_sync_player!=xrc_player_get() || s_sync_song!=song || s_sync_stream!=xrc_audio_stream_generation()) {
+                s_sync_poll=(xrc_sync_poll_t){0};
                 s_sync_have_calibration=false;s_sync_samples=(xrc_sync_samples_t){0};
                 s_gp_last_real_us=0;s_retime_rem_us=0;s_retime_acc=0;s_native_pause_seen=false;
             }
