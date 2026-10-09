@@ -21,41 +21,35 @@ class RateAdaptTests(unittest.TestCase):
     def tearDown(self):
         inject.configure_profile("7.0.255")
 
-    def test_native_distance_sites_and_retired_window(self):
-        for version, site, replay in (("7.0.255",0x100863DFC,0x101468190),
-                                     ("7.0.256",0x100865B50,0x10146C1C0)):
+    def test_numeric_flow_sites_and_retired_render_sites(self):
+        for version in ('7.0.255','7.0.256'):
             inject.configure_profile(version)
-            hooks = {name:(address,slot,expect) for name,address,slot,expect in inject.BRK_HOOKS}
-            self.assertEqual(hooks["native_flow_note"],(site,replay,"00b8a10e"))
             selected,_=inject.features_selected([])
-            self.assertIn("rate_flow",selected)
-            self.assertNotIn("adapt_window",inject.sites_for(selected))
-            self.assertIn("flow_ui",inject.sites_for(selected))
-            native=[h for h in inject.BRK_HOOKS if h[0].startswith("native_flow_")]
-            self.assertEqual(len(native),6)
-            for name,address,slot,expect in native:
-                self.assertIsNone(inject.pc_relative_kind(struct.unpack('<I',bytes.fromhex(expect))[0]))
-                self.assertNotIn(slot,[h[2] for h in inject.BRK_HOOKS if h[0]!=name])
+            sites=inject.sites_for(selected)
+            self.assertIn('flow_setter',sites)
+            self.assertFalse(any(n.startswith('native_flow_') for n in sites))
+            self.assertNotIn('adapt_window',sites)
+            self.assertEqual(len(inject.RETIRED_FLOW_HOOKS),7)
 
-    def test_native_distance_replays_in_isolated_binary(self):
-        inject.configure_profile('7.0.256')
-        hooks=[h for h in inject.BRK_HOOKS if h[0].startswith('native_flow_') or h[0]=='flow_ui']
-        data=bytearray(0x146c220)
-        struct.pack_into('<III',data,0,0xfeedfacf,0x100000c,0)
-        for name,site,replay,expect in hooks: data[site-0x100000000:site-0x100000000+4]=bytes.fromhex(expect)
-        with self.assertRaisesRegex(RuntimeError,'flow contract missing'):
-            inject.validate_flow_contract(data)
-        inject.patch_brk_hooks(data,{h[0] for h in hooks})
-        for off,original,_ in inject.FLOW_RUNTIME_PATCHES['7.0.256']:
-            data[off:off+4]=bytes.fromhex(original)
-        inject.patch_flow_runtime(data,True)
-        inject.validate_flow_contract(data)
-        for name,site,replay,expect in hooks:
-            self.assertEqual(data[site-0x100000000:site-0x100000000+4],inject.BRK_INSN)
-            self.assertEqual(data[replay-0x100000000:replay-0x100000000+4],bytes.fromhex(expect))
-        data[hooks[-1][2]-0x100000000]=0xff
-        with self.assertRaisesRegex(RuntimeError,'flow contract missing'):
-            inject.validate_flow_contract(data)
+    def test_migration_restores_render_instructions_and_is_idempotent(self):
+        for version in ('7.0.255','7.0.256'):
+            inject.configure_profile(version)
+            data=bytearray(0x146d000)
+            struct.pack_into('<III',data,0,0xfeedfacf,0x100000c,0)
+            for name,site,replay,expected in inject.RETIRED_FLOW_HOOKS:
+                off=site-0x100000000; rf=replay-0x100000000
+                data[off:off+4]=inject.BRK_INSN
+                data[rf:rf+8]=bytes.fromhex(expected)+struct.pack('<I',inject.encode_b(replay+4,site+4))
+            inject.restore_retired_flow(data)
+            for name,site,replay,expected in inject.RETIRED_FLOW_HOOKS:
+                self.assertEqual(data[site-0x100000000:site-0x100000000+4],bytes.fromhex(expected))
+                self.assertEqual(data[replay-0x100000000:replay-0x100000000+8],b'\0'*8)
+            before=data[:]; inject.restore_retired_flow(data);self.assertEqual(data,before)
+            name,site,replay,expected=inject.RETIRED_FLOW_HOOKS[-1]
+            data[site-0x100000000:site-0x100000000+4]=b'\xff'*4
+            before=data[:]
+            with self.assertRaises(RuntimeError):inject.restore_retired_flow(data)
+            self.assertEqual(data,before)
 
     def test_old_flow_library_rejected_before_any_write(self):
         for version in ('7.0.255','7.0.256'):
@@ -69,7 +63,7 @@ class RateAdaptTests(unittest.TestCase):
                 with mock.patch.object(inject,'MAIN',str(main)),mock.patch.object(inject.sys,'argv',['inject.py','--brk','--features','rate_flow']),mock.patch.object(inject,'find_dylibs',return_value=[str(lib)]),mock.patch.object(inject.shutil,'copy2') as copy,contextlib.redirect_stdout(output):
                     with self.assertRaises(SystemExit) as error: inject.main()
                     self.assertEqual(error.exception.code,3)
-                    self.assertIn('practice-native-flow v2',output.getvalue())
+                    self.assertIn('practice-value-flow v1',output.getvalue())
                     copy.assert_not_called()
                 self.assertEqual(main.read_bytes(),before)
 

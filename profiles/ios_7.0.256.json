@@ -246,6 +246,21 @@
       "ffc300d1"
     ],
     [
+      "flow_setter",
+      "0x100BD7914",
+      "0x10146C1F0",
+      "010c00b9"
+    ]
+  ],
+  "restore_sites": [
+    [
+      "cb_verify",
+      "0x100f4715c",
+      "fc6fbaa9"
+    ]
+  ],
+  "retired_flow_hooks": [
+    [
       "adapt_window",
       "0x10091e620",
       "0x10146c1b8",
@@ -286,13 +301,6 @@
       "0x10091ea4c",
       "0x10146c1e8",
       "0a00381e"
-    ]
-  ],
-  "restore_sites": [
-    [
-      "cb_verify",
-      "0x100f4715c",
-      "fc6fbaa9"
     ]
   ]
 }

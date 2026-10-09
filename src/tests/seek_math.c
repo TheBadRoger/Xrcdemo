@@ -3,6 +3,10 @@
 #include <assert.h>
 
 int main(void) {
+    assert(xrc_audio_stream_restarted(0,45000));
+    assert(!xrc_audio_stream_restarted(1000,1000));
+    assert(!xrc_audio_stream_restarted(UINT32_MAX,UINT32_MAX));
+
     assert(!xrc_seek_resume_alignment(false,16667));
     assert(!xrc_seek_resume_alignment(false,200000));
     assert(xrc_seek_resume_alignment(false,200001));
@@ -67,10 +71,6 @@ int main(void) {
     assert(xrc_seek_calibrated_offset(calibration, 48) == -28);
     assert(xrc_seek_calibrated_offset(calibration, 24) == -4);
     assert(xrc_seek_calibrated_offset(INT_MIN, 96) == INT_MIN);
-    assert(!xrc_seek_audio_needs_compensation(1000,45000,100,200,false));
-    assert(!xrc_seek_audio_needs_compensation(1000,45000,300,200,true));
-    assert(xrc_seek_audio_needs_compensation(1000,45000,300,200,false));
-    assert(!xrc_seek_audio_needs_compensation(UINT32_MAX,UINT32_MAX,300,200,false));
     assert(xrc_seek_runtime_offset(20,48,-50)==22);
     assert(xrc_seek_runtime_offset(INT_MAX,INT_MAX,-7)==7);
     assert(xrc_seek_runtime_offset(INT_MIN,INT_MAX,INT_MAX)==INT_MIN);
@@ -85,5 +85,20 @@ int main(void) {
     for (unsigned i=0;i<7;++i)
         assert(!xrc_seek_sample_calibration(&samples,20,i*20000,&result));
     assert(xrc_seek_sample_calibration(&samples,20,200000,&result));
+    // A reused FMOD group never changes the new song's native baseline by L.
+    for (int song=0;song<100;++song) {
+        int native=20, extra=(song%2 ? -50 : 75), audio=1000+song*100;
+        int unshifted=audio+native;
+        int learned=unshifted-audio;
+        assert(learned==native);
+        for (unsigned i=0;i<sizeof(changes)/sizeof(changes[0]);++i) {
+            int delay=xrc_seek_output_delay(changes[i],150);
+            int target=xrc_seek_chart_target(audio,xrc_seek_runtime_offset(learned,delay,extra));
+            assert(target+delay+extra==audio+native);
+            // Pausing for a minute does not change the source position or target.
+            assert(xrc_seek_resume_alignment(false,60000000));
+            assert(xrc_seek_chart_target(audio,xrc_seek_runtime_offset(learned,delay,extra))==target);
+        }
+    }
     return 0;
 }

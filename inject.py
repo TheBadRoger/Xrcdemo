@@ -177,7 +177,7 @@ FEATURES = [
      "7.0.256 离线挑战练习：下隐/变速/上下反/点血条/综合，下次开局生效"),
     ("judge_time_lock", ["timing_input", "timing_arc_input", "ap_note_win", "ap_arctap_win"], True, "stable",
      "锁定现实毫秒判定窗口，同步输入预筛选与音符过期窗口"),
-    ("rate_flow", ["flow_ui", "native_flow_note", "native_flow_hold", "native_flow_arc", "native_flow_lower", "native_flow_upper", "native_flow_future"], True, "experimental", "原生实时流速与倍率补偿；不修改节点缩放或显示阈值"),
+    ("rate_flow", ["flow_ui", "flow_setter"], True, "experimental", "直接写入原生流速数值；插件覆盖设置页面写入"),
     ("unlock_own",     ["unlock_l1", "unlock_l2", "unlock_l3"],                    False, "redundant",
      "拥有链三层：归属由 cb 三清单 + 服务器授予决定；本组覆盖服务器未授予而本地已有内容的场景"),
     ("chain_guard",    ["chain_prog"],                                             True,  "required",
@@ -233,6 +233,10 @@ def sites_for(feat_names):
     return keep
 
 
+RETIRED_FLOW_HOOKS = [h for h in BRK_HOOKS if h[0].startswith('native_flow_') or h[0]=='adapt_window']
+BRK_HOOKS = [h for h in BRK_HOOKS if h not in RETIRED_FLOW_HOOKS]
+BRK_HOOKS.append(('flow_setter',0x100BD514C,0x1014681C0,'010c00b9'))
+
 # ---- 门禁静态补丁：就地写、无跳板（默认空表；仅 --gate 时应用）----
 # (名称, VA, 原字节 hex, 补丁字节 hex) —— 幂等：已是补丁字节跳过；expect 不符即报错。
 GATE_PATCHES = []
@@ -250,6 +254,7 @@ _PROFILE_CONSTANTS = [
 ]
 _BASE_PROFILE = {key: globals()[key] for key in _PROFILE_CONSTANTS}
 _BASE_HOOKS = list(BRK_HOOKS)
+_BASE_RETIRED_FLOW = list(RETIRED_FLOW_HOOKS)
 _BASE_RESTORE = list(RESTORE_SITES)
 _BASE_STUB_EXPECT = STUB_ENTRY_EXPECT
 
@@ -257,11 +262,12 @@ _BASE_STUB_EXPECT = STUB_ENTRY_EXPECT
 def configure_profile(version: str) -> None:
     """Select both injection offsets and expected bytes for one game version."""
     import json
-    global ACTIVE_GAME_VERSION, BRK_HOOKS, RESTORE_SITES, STUB_ENTRY_EXPECT
+    global ACTIVE_GAME_VERSION, BRK_HOOKS, RESTORE_SITES, STUB_ENTRY_EXPECT, RETIRED_FLOW_HOOKS
     if version not in ("7.0.255", "7.0.256"):
         raise RuntimeError(f"unsupported game version: {version}; adapt before injection")
     globals().update(_BASE_PROFILE)
     BRK_HOOKS = list(_BASE_HOOKS)
+    RETIRED_FLOW_HOOKS = list(_BASE_RETIRED_FLOW)
     RESTORE_SITES = list(_BASE_RESTORE)
     STUB_ENTRY_EXPECT = _BASE_STUB_EXPECT
     if version == "7.0.256":
@@ -271,6 +277,7 @@ def configure_profile(version: str) -> None:
         globals().update({key: int(value, 0) for key, value in profile["constants"].items()})
         BRK_HOOKS = [(name, int(site, 0), int(replay, 0), expect)
                      for name, site, replay, expect in profile["brk_hooks"]]
+        RETIRED_FLOW_HOOKS = [(name,int(site,0),int(replay,0),expect) for name,site,replay,expect in profile["retired_flow_hooks"]]
         RESTORE_SITES = [(name, int(site, 0), expect)
                          for name, site, expect in profile["restore_sites"]]
         STUB_ENTRY_EXPECT = bytes.fromhex(profile["stub_entry_expect"])
@@ -438,6 +445,8 @@ def patch_brk_hooks(data: bytearray, only_sites=None) -> list[str]:
     only_sites=None → 全部；给集合则未选中的站点**原样保留**（dylib 侧自检会报"本构建无此项"）。
     """
     logs = []
+    if only_sites is None or "flow_setter" in only_sites:
+        restore_retired_flow(data)
     base = fat_arm64_slice_offset(bytes(data))
 
     # ① 还原站点：只要原地还是 BRK 就还原（与本次功能集无关）——见 RESTORE_SITES 注释。
@@ -807,16 +816,38 @@ def validate_flow_contract(data: bytes) -> None:
     """Reject a matching-version host that lacks the plugin's flow hooks."""
     base = fat_arm64_slice_offset(data)
     for name, site, replay, expected in BRK_HOOKS:
-        if name != 'flow_ui' and not name.startswith('native_flow_'):
+        if name not in ('flow_ui','flow_setter'):
             continue
         off = base + site - 0x100000000
         rf = base + replay - 0x100000000
         jump = bytes.fromhex(expected) + struct.pack('<I', encode_b(replay + 4, site + 4))
         if data[off:off + 4] != BRK_INSN or data[rf:rf + 8] != jump:
             raise RuntimeError(f'Main/plugin flow contract missing: {name}; repair the main flow hooks before packaging')
+    for name,site,replay,expected in RETIRED_FLOW_HOOKS:
+        if data[base+site-0x100000000:base+site-0x100000000+4]!=bytes.fromhex(expected):
+            raise RuntimeError(f'Main/plugin retired flow hook still active: {name}')
     for offset, _, replacement in FLOW_RUNTIME_PATCHES[ACTIVE_GAME_VERSION]:
         if data[base + offset:base + offset + 4] != bytes.fromhex(replacement):
             raise RuntimeError(f'Main/plugin flow consumer mismatch: {offset:#x}')
+
+
+def restore_retired_flow(data: bytearray) -> list[tuple[int,int]]:
+    base=fat_arm64_slice_offset(data)
+    plan=[]
+    for name,site,replay,expected in RETIRED_FLOW_HOOKS:
+        off=base+site-0x100000000; rf=base+replay-0x100000000
+        old=bytes.fromhex(expected)
+        jump=old+struct.pack('<I',encode_b(replay+4,site+4))
+        if bytes(data[off:off+4]) not in (old,BRK_INSN):
+            raise RuntimeError(f'retired flow fingerprint mismatch: {name}')
+        if bytes(data[rf:rf+8]) not in (b'\0'*8,jump):
+            raise RuntimeError(f'retired flow replay mismatch: {name}')
+        plan.append((off,rf,old))
+    regions=[]
+    for off,rf,old in plan:
+        data[off:off+4]=old;data[rf:rf+8]=b'\0'*8
+        regions.extend(((off,off+4),(rf,rf+8)))
+    return regions
 
 
 def patch_flow_runtime(data: bytearray, enabled: bool, patches=None) -> list[str]:
@@ -1022,12 +1053,9 @@ def main():
             print("[!] rate adaptation hooks require a rebuilt dylib with 'practice-adapt v1'")
             sys.exit(3)
 
-    native_flow_existing = any(adapt_main[adapt_base + site - 0x100000000:
-                                          adapt_base + site - 0x100000000 + 4] == BRK_INSN
-                               for name, site, _replay, _expect in BRK_HOOKS if name.startswith("native_flow_"))
-    if (do_brk and "rate_flow" in g_selected_features) or native_flow_existing:
-        if b"practice-native-flow v2" not in plugin_bytes:
-            print("[!] native flow sites require a rebuilt dylib with 'practice-native-flow v2'")
+    if do_brk and "rate_flow" in g_selected_features:
+        if b"practice-value-flow v1" not in plugin_bytes:
+            print("[!] flow setter requires a rebuilt dylib with 'practice-value-flow v1'")
             sys.exit(3)
 
     # 配对校验（两条）：

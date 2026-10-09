@@ -210,3 +210,12 @@ bool xrc_player_read_paused(void *player, bool *paused) {
     if (((get_paused_fn)(xrc_image_base()+XRC_OFF_FMOD_GET_PAUSED))(group,&value)!=0) return false;
     *paused=value!=0; return true;
 }
+
+void *xrc_player_current_channel(void *player) {
+    void *channels=player ? *(void **)((char *)player+XRC_PLAYER_CHANNELS_OFF) : NULL;
+    return channels ? *(void **)((char *)channels+XRC_CHANNEL_ENTRY_PTR_OFF) : NULL;
+}
+void *xrc_player_current_sound(void *player) {
+    void *ch=xrc_player_current_channel(player), *sound=NULL;
+    return ch && s_get_current_sound && s_get_current_sound(ch,&sound)==0 ? sound : NULL;
+}

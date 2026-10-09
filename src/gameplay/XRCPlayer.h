@@ -42,3 +42,6 @@ bool xrc_player_read_position(void *player, uint32_t *out_ms);
 
 void *xrc_player_bgm_group(void *player);
 bool xrc_player_read_paused(void *player, bool *paused);
+
+void *xrc_player_current_channel(void *player);
+void *xrc_player_current_sound(void *player);

@@ -24,6 +24,7 @@ double xrc_audio_output_latency_ms(void);
 // Acknowledges a plugin-owned seek without issuing another audio seek.
 void xrc_audio_seek_finished(void);
 double xrc_audio_effective_rate(void);
-// Consume only when a valid chart clock can apply the adjustment.
-int32_t xrc_audio_take_alignment_adjustment(void);
-void xrc_audio_alignment_acknowledged(void);
+// Scene and stream identities prevent reused FMOD groups carrying old state.
+void xrc_audio_begin_scene(void *scene,uint64_t song);
+uint64_t xrc_audio_stream_generation(void);
+void xrc_audio_resume(void);

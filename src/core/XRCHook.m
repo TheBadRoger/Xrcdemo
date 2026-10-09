@@ -701,13 +701,6 @@ static void s_arc_hide_a(void *vctx) { s_arc_hide_x(vctx); }
 static void s_arc_hide_b(void *vctx) { s_arc_hide_x(vctx); }
 
 static const xrc_brk_entry_t k_brk_entries[] = {
-    { "native_flow_note", XRC_NATIVE_FLOW_NOTE_SITE_OFF, XRC_NATIVE_FLOW_NOTE_REPLAY_OFF, xrc_rate_adapt_note },
-    { "native_flow_hold", XRC_NATIVE_FLOW_HOLD_SITE_OFF, XRC_NATIVE_FLOW_HOLD_REPLAY_OFF, xrc_rate_adapt_note },
-    { "native_flow_arc", XRC_NATIVE_FLOW_ARC_SITE_OFF, XRC_NATIVE_FLOW_ARC_REPLAY_OFF, xrc_rate_adapt_arc },
-    { "native_flow_lower", XRC_NATIVE_FLOW_LOWER_SITE_OFF, XRC_NATIVE_FLOW_LOWER_REPLAY_OFF, xrc_rate_adapt_lower },
-    { "native_flow_upper", XRC_NATIVE_FLOW_UPPER_SITE_OFF, XRC_NATIVE_FLOW_UPPER_REPLAY_OFF, xrc_rate_adapt_upper },
-    { "native_flow_future", XRC_NATIVE_FLOW_FUTURE_SITE_OFF, XRC_NATIVE_FLOW_FUTURE_REPLAY_OFF, xrc_rate_adapt_lower },
-    { "adapt_window", XRC_BRK_ADAPT_WINDOW_SITE_OFF, XRC_BRK_ADAPT_WINDOW_REPLAY_OFF, xrc_rate_adapt_window },
 #if defined(XRC_GAME_VERSION_7_0_256)
     { "konzetsu_chart", 0x910CE0ULL, 0x146C188ULL, xrc_konzetsu_chart },
     { "konzetsu_id", 0xAB1DE8ULL, 0x146C190ULL, xrc_konzetsu_id },
@@ -721,6 +714,7 @@ static const xrc_brk_entry_t k_brk_entries[] = {
     { "unlock_l1",   XRC_BRK_UNLOCK_L1_SITE_OFF,  XRC_BRK_UNLOCK_L1_REPLAY_OFF,  s_unlock_force_true },
     { "timing_input", XRC_BRK_TIMING_INPUT_SITE_OFF, XRC_BRK_TIMING_INPUT_REPLAY_OFF, s_timing_input },
     { "timing_arc_input", XRC_BRK_TIMING_ARC_INPUT_SITE_OFF, XRC_BRK_TIMING_ARC_INPUT_REPLAY_OFF, s_timing_arc_input },
+    { "flow_setter", XRC_OFF_FLOW_SETTER+0x10, XRC_BRK_FLOW_SETTER_REPLAY_OFF, xrc_rate_adapt_preference_write },
     { "flow_ui", XRC_BRK_FLOW_UI_SITE_OFF, XRC_BRK_FLOW_UI_REPLAY_OFF, s_flow_ui },
     { "unlock_l2",   XRC_BRK_UNLOCK_L2_SITE_OFF,  XRC_BRK_UNLOCK_L2_REPLAY_OFF,  s_unlock_force_true },
     { "unlock_l3",   XRC_BRK_UNLOCK_L3_SITE_OFF,  XRC_BRK_UNLOCK_L3_REPLAY_OFF,  s_unlock_force_true },
@@ -915,7 +909,7 @@ static const xrc_feature_sites_t k_feature_sites[] = {
     { "konzetsu", { "konzetsu_chart", "konzetsu_id", "konzetsu_active",
                      "konzetsu_score", "konzetsu_hpbar", "konzetsu_info" }, 6 },
     { "judge_time_lock", { "timing_input", "timing_arc_input", "ap_note_win", "ap_arctap_win" }, 4 },
-    { "rate_flow", { "flow_ui", "native_flow_note", "native_flow_hold", "native_flow_arc", "native_flow_lower", "native_flow_upper", "native_flow_future" }, 7 },
+    { "rate_flow", { "flow_ui", "flow_setter" }, 2 },
     { "unlock_own",     { "unlock_l1", "unlock_l2", "unlock_l3" }, 3 },
     { "chain_guard",    { "chain_prog" }, 1 },
     { "cb_free",        { "cb_ready", "cb_filehash", "cb_listhash", "cb_wipe", "cb_dispatch" }, 5 },

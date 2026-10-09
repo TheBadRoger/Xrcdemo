@@ -5,6 +5,7 @@
 #import "XRCLog.h"          // 拒绝非法 rate 时留痕
 #include "XRCClock.h"
 #include "XRCClockMath.h"
+#include "XRCRateAdapt.h"
 
 static _Atomic(uint64_t) s_t0_real_us = 0;
 static _Atomic(uint64_t) s_t0_warp_us = 0;
@@ -45,6 +46,7 @@ void xrc_clock_set_rate(double rate) {
     if (rate <= 0.001) { xrc_logd(XRCLC_BOOT, @"clock rate rejected: %.4f", rate); return; }
     xrc_clock_warp_reset();
     atomic_store(&s_rate_x1000, (uint32_t)(rate * 1000.0 + 0.5));
+    if ([NSThread isMainThread]) xrc_rate_adapt_native_tick();
 }
 
 void xrc_clock_freeze_inc(void) {

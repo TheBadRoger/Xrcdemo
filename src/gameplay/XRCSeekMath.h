@@ -27,12 +27,6 @@ static inline int32_t xrc_seek_calibrated_offset(int32_t calibration, int32_t de
     return value > INT_MAX ? INT_MAX : value < INT_MIN ? INT_MIN : (int32_t)value;
 }
 
-// A plugin seek owns its DSP alignment. Do not turn its position retreat into
-// another Channel::setPosition after the transaction has completed.
-static inline bool xrc_seek_audio_needs_compensation(uint32_t position,uint32_t previous,
-                                                     uint64_t now,uint64_t owned_until,bool seeking) {
-    return !seeking && now>=owned_until && (uint64_t)position+500<previous;
-}
 static inline int32_t xrc_seek_runtime_offset(int32_t calibration,int32_t delay,int32_t extra) {
     int64_t value=(int64_t)calibration-delay-extra;
     return value>INT_MAX ? INT_MAX : value<INT_MIN ? INT_MIN : (int32_t)value;
@@ -65,4 +59,8 @@ static inline bool xrc_seek_can_resume(bool owned,uint64_t scene,uint64_t player
 // A native pause or a suspended update loop must not be extrapolated at the rate.
 static inline bool xrc_seek_resume_alignment(bool paused_seen,uint64_t gap_us) {
     return paused_seen || gap_us>200000ULL;
+}
+
+static inline bool xrc_audio_stream_restarted(uint32_t position,uint32_t previous) {
+    return (uint64_t)position+500<previous;
 }

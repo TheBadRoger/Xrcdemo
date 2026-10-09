@@ -25,7 +25,6 @@ xrcdemo_FILES += src/gameplay/XRCAudio.m
 xrcdemo_FILES += src/gameplay/XRCAudioStretch.mm
 xrcdemo_FILES += src/gameplay/XRCJudge.m
 xrcdemo_FILES += src/gameplay/XRCRateAdapt.m
-xrcdemo_FILES += src/gameplay/XRCArcFlow.m
 xrcdemo_FILES += src/gameplay/XRCKonzetsu.m
 xrcdemo_FILES += src/gameplay/XRCReplay.m
 xrcdemo_FILES += src/content/XRCNet.m

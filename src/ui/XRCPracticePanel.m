@@ -439,7 +439,7 @@ static NSString *const kNoteDev =
     [c1 addSubview:self.swHideDuringPlay];
     CGFloat flowY = adaptY + 3 * rowH + 24;
     UILabel *flowTitle = [[UILabel alloc] initWithFrame:CGRectMake(cardPad, flowY, W - cardPad * 2, 16)];
-    flowTitle.text = @"下落流速（实时设置）";
+    flowTitle.text = @"基准流速（直接写入原生数值）";
     flowTitle.textColor = UIColor.whiteColor;
     flowTitle.font = [UIFont systemFontOfSize:12];
     [c1 addSubview:flowTitle];
@@ -1312,7 +1312,7 @@ static NSString *const kNoteDev =
         @"当前主程序缺少完整流速钩子或版本校验失败，请更新配套主程序。";
     self.flowField.enabled = self.flowApplyBtn.enabled = self.flowNativeBtn.enabled = xrc_cap_gp() && xrc_rate_adapt_flow_available();
     if (!self.flowField.isFirstResponder) {
-        double flow = xrc_rate_adapt_native_flow();
+        double flow = xrc_rate_adapt_base_flow();
         self.flowField.text = flow > 0 ? [NSString stringWithFormat:@"%.1f", flow] : @"";
     }
     self.swOwn.on      = xrc_brk_unlock_own();

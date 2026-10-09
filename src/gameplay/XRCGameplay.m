@@ -21,7 +21,6 @@
 #include "XRCRateAdapt.h"
 #include "XRCPlayer.h"
 #include "XRCReplay.h"
-#include "XRCArcFlow.h"
 #include "XRCSeekMath.h"
 #include "XRCProfile.h"
 
@@ -37,7 +36,6 @@ static uint64_t s_gp_last_real_us = 0;
 // retime 的两个分数余量：任何一环按整数截断，累积起来都会变成"越到后面越不同步"。
 static uint64_t s_retime_rem_us = 0;    // 微秒→毫秒的余量
 static bool s_native_pause_seen;
-static unsigned s_resume_align_frames;
 static double   s_retime_acc    = 0.0;  // (1−rate)·delta 的小数余量
 
 // ---- deferred 操作状态机 ----
@@ -157,6 +155,7 @@ static void *s_sync_scene, *s_sync_ng, *s_sync_player;
 static int32_t s_sync_offset;
 static bool s_sync_have_calibration;
 static void *s_sync_clock;
+static uint64_t s_sync_song,s_sync_stream;
 static xrc_sync_samples_t s_sync_samples;
 static double s_sync_sample_rate;
 static int32_t s_sync_sample_delay, s_sync_sample_extra;
@@ -234,8 +233,7 @@ static bool s_seek_context_valid(void *ng) {
 
 static void s_seek_finish(bool success) {
     if (atomic_load(&s_frz_state)==XRC_FRZ_OFF) return;
-    // Release the frozen epoch before the final write. Mark the audio retreat as
-    // plugin-owned before audio tick resumes, preventing a second DSP bump.
+    // Release the frozen epoch before final absolute alignment.
     if (s_seek_has_freeze) {
         xrc_clock_freeze_dec(); s_seek_has_freeze=false;
     }
@@ -249,8 +247,7 @@ static void s_seek_finish(bool success) {
         int32_t delay=xrc_seek_output_delay(xrc_audio_effective_rate(),xrc_audio_output_latency_ms());
         s_seek_offset=xrc_seek_runtime_offset(s_sync_offset,delay,xrc_rate_adapt_offset_extra(s_seek_ng));
         xrc_clock_shift_to(s_seek_ng,xrc_seek_chart_target(audio,s_seek_offset));
-        // This absolute alignment already includes the newly applied rate delay.
-        xrc_audio_alignment_acknowledged();
+        // Includes the current DSP delay and preference offset exactly once.
         xrc_logi(XRCLC_JUDGE,@"[seek-sync] #%llu final audio=%u chart=%d delta=%lld",
                  s_seek_sequence,audio,xrc_chart_clock_ms(s_seek_ng),
                  (int64_t)xrc_chart_clock_ms(s_seek_ng)-audio);
@@ -305,10 +302,8 @@ static void s_frz_tick(void *ng) {
             atomic_store(&s_frz_state, XRC_FRZ_REBUILD);
             xrc_logi(XRCLC_JUDGE, @"[seek] #%llu landed audio=%u chart=%d offset=%d",
                      s_seek_sequence, audio, chart, s_seek_offset);
-            xrc_arc_flow_prepare_seek();
             xrc_replay_seek((uint64_t)s_seek_scene, chart > 0 ? (uint32_t)chart : 0,
                                 (uint32_t)s_seek_previous);
-            xrc_arc_flow_frame(s_seek_scene,1.0,chart);
             xrc_freeze_end(); // Also closes no-replay/no-note paths.
         } else if (now >= s_seek_deadline_us) {
             // Never commit a failed target. Restore chart/audio relationship if readable.
@@ -329,13 +324,16 @@ static void s_capture_sync_calibration(void *scene,void *ng) {
     if (xrc_gameplay_seek_active() || !ng) return;
     void *player=xrc_player_get();
     void *clock=*(void **)((char *)ng+XRC_CLOCK_IN_NOTEGROUP_OFF);
-    if (s_sync_scene!=scene || s_sync_ng!=ng || s_sync_player!=player || s_sync_clock!=clock) {
+    uint64_t song=*(uint64_t *)((char *)scene+728), stream=xrc_audio_stream_generation();
+    if (s_sync_scene!=scene || s_sync_ng!=ng || s_sync_player!=player || s_sync_clock!=clock ||
+        s_sync_song!=song || s_sync_stream!=stream) {
         s_sync_scene=scene; s_sync_ng=ng; s_sync_player=player; s_sync_clock=clock;
+        s_sync_song=song;s_sync_stream=stream;
         s_sync_have_calibration=false; s_sync_samples=(xrc_sync_samples_t){0};
     }
     if (s_sync_have_calibration) return;
     int32_t chart=xrc_chart_clock_ms(ng); uint32_t audio=0;
-    if (chart<0 || !xrc_player_read_position(player,&audio) || !audio) return;
+    if (chart<-60000 || !xrc_player_read_position(player,&audio) || !audio) return;
     double rate=xrc_audio_effective_rate();
     int32_t delay=xrc_seek_output_delay(rate,xrc_audio_output_latency_ms());
     int32_t extra=xrc_rate_adapt_offset_extra(ng);
@@ -343,7 +341,7 @@ static void s_capture_sync_calibration(void *scene,void *ng) {
         s_sync_samples=(xrc_sync_samples_t){0};
         s_sync_sample_rate=rate; s_sync_sample_delay=delay; s_sync_sample_extra=extra;
     }
-    int64_t value=(int64_t)chart-audio+delay+extra;
+    int64_t value=(int64_t)chart-audio; // native baseline: no plugin offset or DSP shift before calibration
     if (value<INT_MIN || value>INT_MAX) return;
     if (!xrc_seek_sample_calibration(&s_sync_samples,(int32_t)value,xrc_real_now_us(),&s_sync_offset)) return;
     s_sync_have_calibration=true;
@@ -473,8 +471,10 @@ static bool s_resume_align(void *ng,bool refresh_clock) {
         scene!=s_sync_scene || ng!=s_sync_ng || player!=s_sync_player) return false;
     void *clock=*(void **)((char *)ng+XRC_CLOCK_IN_NOTEGROUP_OFF);
     if (clock!=s_sync_clock) return false;
-    uint32_t audio=0;
-    if (!xrc_player_read_position(player,&audio)) return false;
+    uint32_t audio=0;bool paused=false;
+    if (s_sync_stream!=xrc_audio_stream_generation() ||
+        (xrc_player_read_paused(player,&paused) && paused) ||
+        !xrc_player_read_position(player,&audio)) return false;
     if (refresh_clock) {
         extern uint64_t xrc_image_base(void);
         ((void (*)(void *))(xrc_image_base()+XRC_OFF_CLOCK_TICK))(clock);
@@ -483,7 +483,7 @@ static bool s_resume_align(void *ng,bool refresh_clock) {
         xrc_seek_output_delay(xrc_audio_effective_rate(),xrc_audio_output_latency_ms()),
         xrc_rate_adapt_offset_extra(ng));
     xrc_clock_shift_to(ng,xrc_seek_chart_target(audio,offset));
-    xrc_audio_alignment_acknowledged();
+
     return true;
 }
 // ---- gp.update retime（6.13 语义）----
@@ -494,7 +494,7 @@ static void s_gp_retime_logic_clock(void *note_group) {
     if (!clk) return;
     uint64_t now_us = xrc_real_now_us();
     if (!now_us) return;
-    if (clk!=s_gp_last_clock) { s_native_pause_seen=false; s_resume_align_frames=0; }
+    if (clk!=s_gp_last_clock) { s_native_pause_seen=false; }
     bool paused=false;
     if (xrc_player_read_paused(xrc_player_get(),&paused) && paused) {
         s_native_pause_seen=true; s_gp_last_clock=clk; s_gp_last_real_us=now_us;
@@ -503,8 +503,9 @@ static void s_gp_retime_logic_clock(void *note_group) {
     uint64_t gap=s_gp_last_real_us && now_us>s_gp_last_real_us ? now_us-s_gp_last_real_us : 0;
     if (clk==s_gp_last_clock && xrc_seek_resume_alignment(s_native_pause_seen,gap)) {
         s_native_pause_seen=false; s_gp_last_real_us=now_us;
+        xrc_audio_resume();
         s_retime_rem_us=0; s_retime_acc=0;
-        s_resume_align_frames=s_resume_align(note_group,true) ? 2 : 0;
+        s_resume_align(note_group,true);
         return;
     }
     if (clk != s_gp_last_clock || s_gp_last_real_us == 0 || now_us <= s_gp_last_real_us) {
@@ -522,6 +523,7 @@ static void s_gp_retime_logic_clock(void *note_group) {
     int32_t delta_ms = (int32_t)(acc_us / 1000ULL);
     s_retime_rem_us = acc_us % 1000ULL;
     if (delta_ms <= 0) return;
+    if (s_sync_have_calibration && xrc_audio_speed_enabled()) return;
     double rate = xrc_clock_get_rate();
     int32_t adjust = 0;
     if (rate < 0.999 || rate > 1.001) {
@@ -583,19 +585,28 @@ bool xrc_gameplay_is_active(void) {
 
 void xrc_gameplay_update(void *self, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5) {
     atomic_store(&s_last_gameplay_frame, self ? xrc_real_now_us() : 0);
-    @try { if (!xrc_gameplay_seek_active()) xrc_audio_speed_tick(); } @catch (NSException *e) {}
     if (!self) {
         atomic_store(&xrc_gp_instance, NULL);
         s_frz_tick(NULL);
     }
     if (self) {
         atomic_store(&xrc_gp_instance, self);
+        xrc_audio_begin_scene(self,*(uint64_t *)((char *)self+728));
+        @try { if (!xrc_gameplay_seek_active()) xrc_audio_speed_tick(); } @catch (NSException *e) {}
         void *note_group = *(void **)((char *)self + XRC_GP_NOTEGROUP_OFF);
         if (xrc_gameplay_seek_active() && !s_seek_context_valid(note_group))
             s_seek_finish(false);
         if (note_group) {
+            void *clock=*(void **)((char *)note_group+XRC_CLOCK_IN_NOTEGROUP_OFF);
+            uint64_t song=*(uint64_t *)((char *)self+728);
+            if (s_sync_scene!=self || s_sync_ng!=note_group || s_sync_clock!=clock ||
+                s_sync_player!=xrc_player_get() || s_sync_song!=song || s_sync_stream!=xrc_audio_stream_generation()) {
+                s_sync_have_calibration=false;s_sync_samples=(xrc_sync_samples_t){0};
+                s_gp_last_real_us=0;s_retime_rem_us=0;s_retime_acc=0;s_native_pause_seen=false;
+            }
             xrc_rate_adapt_frame_begin(self, note_group);
             s_gp_retime_logic_clock(note_group);
+            if (!xrc_gameplay_seek_active() && s_sync_have_calibration) s_resume_align(note_group,true);
             s_rate_probe_tick(note_group);      // 音画倍率自测（1 Hz，只读）
             int32_t pos = xrc_chart_clock_ms(note_group);
             // 冻结/收敛窗内钟不是真实播放时间（钉住/落位中）——循环 tick 抑制，
@@ -659,25 +670,17 @@ void xrc_gameplay_update(void *self, uint64_t a2, uint64_t a3, uint64_t a4, uint
     // 音乐变速：低频去重 tick —— 速度变了/换歌了/组刚建才动作。
     // 放这里是因为 gp.update 是唯一"进对局后每帧都在跑"的点，面板不开时也有效。
     @try { xrc_audio_speed_tick(); } @catch (NSException *e) {}
-    if (self) xrc_rate_adapt_native_begin(*(void **)((char *)self + XRC_GP_NOTEGROUP_OFF));
     if (s_orig_gp_update) {
         s_orig_gp_update(self, a2, a3, a4, a5);
         if (self) atomic_fetch_add(&s_native_update_sequence,1);
     }
-    xrc_rate_adapt_frame_end(self, NULL);
     // Native update refreshes clock fields. Reconcile afterwards so those writes
     // cannot undo the alignment in the same frame or add rebuild elapsed time.
     if (self && atomic_load(&xrc_gp_instance) == self) {
         void *ng = *(void **)((char *)self + XRC_GP_NOTEGROUP_OFF);
-        xrc_rate_adapt_frame_end(self, ng);
         s_capture_sync_calibration(self, ng);
+        if (!xrc_gameplay_seek_active() && s_sync_have_calibration) s_resume_align(ng,false);
         s_frz_tick(ng);
-        if (!xrc_gameplay_seek_active() && s_resume_align_frames) {
-            if (s_resume_align(ng,false)) --s_resume_align_frames;
-            else s_resume_align_frames=0;
-            s_gp_last_real_us=xrc_real_now_us();
-            s_retime_rem_us=0; s_retime_acc=0;
-        }
         if (!xrc_gameplay_seek_active() && s_sync_reconcile_frames) {
             uint32_t confirmed_audio=0;
             if (s_seek_context_valid(ng) && xrc_player_read_position(s_seek_player,&confirmed_audio)) {

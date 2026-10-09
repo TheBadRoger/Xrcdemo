@@ -7,10 +7,10 @@
 #include "XRCLog.h"
 #include "XRCProfile.h"
 #include "XRCClock.h"
-#include "XRCSeekMath.h"
 #include "XRCAudioStretch.h"
 #include "XRCPlayer.h"
 #include "XRCGameplay.h"
+#include "XRCSeekMath.h"
 
 #include <stdatomic.h>
 #include <stdint.h>
@@ -23,14 +23,11 @@ typedef int32_t (*fmod_cc_set_pitch_t)(void *, float);
 typedef int32_t (*fmod_cc_add_dsp_t)(void *, int32_t, void *);
 typedef int32_t (*fmod_cc_remove_dsp_t)(void *, void *);
 typedef int32_t (*fmod_dsp_release_t)(void *);
-typedef int32_t (*fmod_ch_getpos_t)(void *, uint32_t *, uint32_t);
-typedef int32_t (*fmod_ch_setpos_t)(void *, uint32_t, uint32_t);
+
 static fmod_cc_set_pitch_t p_set_pitch;
 static fmod_cc_add_dsp_t p_add_dsp;
 static fmod_cc_remove_dsp_t p_remove_dsp;
 static fmod_dsp_release_t p_dsp_release;
-static fmod_ch_getpos_t    p_ch_getpos;
-static fmod_ch_setpos_t    p_ch_setpos;
 
 static void s_resolve(void) {
     static atomic_int done;
@@ -41,8 +38,7 @@ static void s_resolve(void) {
     p_add_dsp     = (fmod_cc_add_dsp_t)  (mb + XRC_OFF_FMOD_CC_ADD_DSP);
     p_remove_dsp = (fmod_cc_remove_dsp_t)(mb + XRC_OFF_FMOD_CC_REMOVE_DSP);
     p_dsp_release = (fmod_dsp_release_t) (mb + XRC_OFF_FMOD_DSP_RELEASE);
-    p_ch_getpos   = (fmod_ch_getpos_t)   (mb + XRC_OFF_CH_GET_POSITION);
-    p_ch_setpos   = (fmod_ch_setpos_t)   (mb + XRC_OFF_CH_SET_POSITION);
+
 }
 
 static BOOL s_ptr_ok(void *p) {
@@ -64,25 +60,17 @@ static void *s_bgm_group(void) {
     return s_ptr_ok(g) ? g : NULL;
 }
 
-static void *s_channel0(void) {
-    void *player = xrc_player_get();
-    if (!player) return NULL;
-    char *tbl = *(char **)((char *)player + XRC_PLAYER_CHANNELS_OFF);
-    if (!tbl) return NULL;
-    void *c = *(void **)(tbl + XRC_CHANNEL_ENTRY_PTR_OFF);
-    return s_ptr_ok(c) ? c : NULL;
-}
-
 // ---------------- 状态 ----------------
 static void *s_dsp;
 static void *s_dsp_group;          // DSP 当前挂在哪个组（换歌会换组）
 static double s_dsp_lat_ms;        // 算法报告的输入 + 输出延迟，使用实际混音采样率
 static double s_applied_rate = 1.0;
 static void *s_applied_group;
-static uint64_t s_owned_seek_until;
-static uint32_t s_last_pos_ms;     // 位置回退检测（seek/retry 后要重新补偿）
+static void *s_stream_channel,*s_stream_sound,*s_scene;
+static uint64_t s_scene_song;
+static uint32_t s_stream_position;
+static _Atomic(uint64_t) s_stream_generation;
 static atomic_bool s_enabled = true;
-static atomic_int s_alignment_adjustment;
 
 void xrc_audio_speed_set_enabled(BOOL on) {
     bool prev = atomic_exchange(&s_enabled, (bool)on);
@@ -98,17 +86,18 @@ static void s_release_dsp(void) {
     s_dsp=NULL; s_dsp_group=NULL; s_dsp_lat_ms=0;
 }
 
-// 延迟补偿：把通道位置前移 rate·L（一次性；此后"内容位置"与"听到的声音"恒差 L）。
-// 只在挂载/位置回退时做 —— 每次改速度都补会叠加偏移。
-static void s_compensate(void *ch, double rate) {
-    if (!ch || s_dsp_lat_ms <= 0.05f || !p_ch_getpos || !p_ch_setpos) return;
-    uint32_t pos = 0;
-    if (p_ch_getpos(ch, &pos, 1 /*FMOD_TIMEUNIT_MS*/) != 0) return;   // 拿不到就放弃补偿
-    uint32_t bump = (uint32_t)(rate * (double)s_dsp_lat_ms + 0.5);
-    if (bump && p_ch_setpos(ch,pos+bump,1)==0) {
-        xrc_stretch_reset();
-        atomic_store(&s_alignment_adjustment,0);
-    }
+// Delay is handled exclusively by the gameplay clock. No implicit source seeks.
+void xrc_audio_begin_scene(void *scene,uint64_t song) {
+    if (scene==s_scene && song==s_scene_song) return;
+    s_release_dsp();
+    xrc_logi(XRCLC_BOOT,@"practice-audio-sync v2: fresh scene, chart owns DSP delay; no implicit source seeks");
+    s_scene=scene;s_scene_song=song;s_applied_group=NULL;
+    xrc_stretch_reset();atomic_fetch_add(&s_stream_generation,1);
+}
+uint64_t xrc_audio_stream_generation(void) { return atomic_load(&s_stream_generation); }
+void xrc_audio_resume(void) {
+    // Native resume may have reset the reused FMOD group's pitch.
+    s_applied_group=NULL;xrc_audio_speed_tick();
 }
 
 void xrc_audio_speed_apply(double rate) {
@@ -119,16 +108,16 @@ void xrc_audio_speed_apply(double rate) {
     rate=fmax(0.05,fmin(4.0,rate));
     void *group=s_bgm_group();
     if (!group) return;
-    if (group!=s_applied_group) atomic_store(&s_alignment_adjustment,0);
+
     if (s_dsp_group && s_dsp_group!=group) s_release_dsp();
-    bool attached=false;
+
     if (!s_dsp && rate!=1.0) {
         uint64_t system=s_system();
         int32_t rc=system ? xrc_stretch_create(system,&s_dsp) : -1;
         if (rc==0 && s_ptr_ok(s_dsp)) rc=p_add_dsp ? p_add_dsp(group,0,s_dsp) : -1;
         if (rc==0 && s_ptr_ok(s_dsp)) {
             s_dsp_group=group; s_dsp_lat_ms=xrc_stretch_latency_ms();
-            xrc_stretch_reset(); attached=true;
+            xrc_stretch_reset();
             xrc_logi(XRCLC_BOOT,@"[audio] Signalsmith Stretch ready latency=%.2fms",s_dsp_lat_ms);
         } else {
             s_release_dsp();
@@ -142,16 +131,7 @@ void xrc_audio_speed_apply(double rate) {
         xrc_logw(XRCLC_BOOT,@"[audio] setPitch failed rc=%d",rc);
         return;
     }
-    if (!attached && s_dsp && s_applied_group==group) {
-        // Keep the source continuous; move the chart by the change in DSP delay.
-        int32_t delta=xrc_seek_output_delay(rate,s_dsp_lat_ms)-
-                      xrc_seek_output_delay(s_applied_rate,s_dsp_lat_ms);
-        atomic_fetch_add(&s_alignment_adjustment,delta);
-    }
-    s_applied_rate=rate; s_applied_group=group;
-    if (attached) s_compensate(s_channel0(),rate);
-    void *channel=s_channel0(); uint32_t position=0;
-    if (channel && p_ch_getpos && p_ch_getpos(channel,&position,1)==0) s_last_pos_ms=position;
+    s_applied_rate=rate;s_applied_group=group;
 }
 
 void xrc_audio_speed_tick(void) {
@@ -161,15 +141,17 @@ void xrc_audio_speed_tick(void) {
     void *group = s_bgm_group();
     double rate = atomic_load(&s_enabled) ? xrc_clock_get_rate() : 1.0;
 
-    // seek/retry 检测：位置回退 ⇒ 重新做一次延迟补偿（补偿是一次性偏移，会被 seek 冲掉）
-    if (s_dsp && s_dsp_group==group && s_dsp_lat_ms > 0.05f) {
-        void *ch = s_channel0();
-        uint32_t pos = 0;
-        if (ch && p_ch_getpos && p_ch_getpos(ch, &pos, 1) == 0) {
-            if (xrc_seek_audio_needs_compensation(pos,s_last_pos_ms,xrc_real_now_us(),s_owned_seek_until,false)) { xrc_stretch_reset(); s_compensate(ch,rate); }
-            s_last_pos_ms = pos;
-        }
+    void *player=xrc_player_get();
+    void *channel=xrc_player_current_channel(player), *sound=xrc_player_current_sound(player);
+    uint32_t position=0;
+    bool readable=xrc_player_read_position(player,&position);
+    bool restarted=readable && xrc_audio_stream_restarted(position,s_stream_position);
+    if (channel!=s_stream_channel || sound!=s_stream_sound || restarted) {
+        if (restarted) s_release_dsp();
+        s_stream_channel=channel;s_stream_sound=sound;s_applied_group=NULL;
+        xrc_stretch_reset();atomic_fetch_add(&s_stream_generation,1);
     }
+    if (readable) s_stream_position=position;
     if (rate == s_applied_rate && group == s_applied_group) return;   // 去重：每帧只做一次比较
     xrc_audio_speed_apply(rate);
 }
@@ -187,11 +169,7 @@ double xrc_audio_output_latency_ms(void) {
 }
 
 double xrc_audio_effective_rate(void) { return s_applied_rate; }
-int32_t xrc_audio_take_alignment_adjustment(void) { return atomic_exchange(&s_alignment_adjustment,0); }
-void xrc_audio_alignment_acknowledged(void) { atomic_store(&s_alignment_adjustment,0); }
 void xrc_audio_seek_finished(void) {
     xrc_stretch_reset();
-    s_owned_seek_until=xrc_real_now_us()+2000000ULL;
-    void *channel=s_channel0(); uint32_t position=0;
-    if (channel && p_ch_getpos && p_ch_getpos(channel,&position,1)==0) s_last_pos_ms=position;
+    xrc_player_read_position(xrc_player_get(),&s_stream_position);
 }

@@ -28,35 +28,14 @@ static inline bool xrc_live_flow_units(double speed, uint64_t *units) {
     *units = (uint64_t)floor(speed * 10.0 + 0.5);
     return *units >= 1 && *units <= (uint64_t)INT32_MAX;
 }
-static inline double xrc_live_flow_factor(double base, double requested, double rate, bool adapt) {
-    if (!isfinite(base) || base <= 0) return 1.0;
-    return (requested > 0 ? requested / base : 1.0) * xrc_adapt_flow_factor(rate, adapt);
+// Round the actual native highspeed_int value; never scale render intermediates.
+static inline int32_t xrc_flow_value(int32_t base,double rate,bool adapt) {
+    if (base<=0) return 0;
+    double result=adapt ? base/xrc_adapt_rate(rate) : base;
+    if (result>=INT_MAX) return INT_MAX;
+    return result<1 ? 1 : (int32_t)floor(result+0.5);
 }
-// Scale native relative distances before FCVTZS, preserving its finite int32 range.
-static inline float xrc_native_flow_distance(float value, double factor) {
-    double result=(double)value*factor;
-    if (!isfinite(result)) return result<0 ? -2147483648.0f : 2147483520.0f;
-    if (result>2147483520.0) return 2147483520.0f;
-    if (result<-2147483648.0) return -2147483648.0f;
-    return (float)result;
-}
-// Two endpoints and six absolute mesh vertices (native build copies their Z).
-static inline void xrc_arc_flow_geometry(float out[24],const float original[24],
-                                         const float current[24],double factor,bool clipped) {
-    for (unsigned i=0;i<24;++i) {
-        unsigned record=i/3;
-        bool head=record==0 || (record>=2 && record<=4);
-        out[i]=clipped && head ? current[i] :
-            i%3==2 ? xrc_native_flow_distance(original[i],factor) : original[i];
-    }
-}
-// Widen only candidate lookup for slow flow; native visible thresholds stay intact.
-static inline float xrc_native_flow_candidate(float index, float window, double factor,
-                                             bool upper, int32_t minimum, int32_t maximum) {
-    if (factor>=1 || factor<=0) return index;
-    double delta=((double)window/factor-window)/10000.0;
-    double result=(double)index+(upper ? delta : -delta);
-    if (result<minimum) return (float)minimum;
-    if (result>maximum) return (float)maximum;
-    return (float)result;
+
+static inline int32_t xrc_flow_write_value(int32_t plugin,int32_t native) {
+    return plugin>0 ? plugin : native;
 }
