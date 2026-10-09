@@ -16,8 +16,7 @@ typedef struct {
     int       judge_far_ms;
     int       judge_lost_ms;
     BOOL      judge_time_lock;
-    BOOL      rate_adapt_offset;
-    BOOL      rate_adapt_flow;
+    BOOL      rate_adapt; // offset adaptation and native speed lock share one switch
     int       konzetsu_id;  // panel choices 1,2,3,4,6
     BOOL      konzetsu_enabled;
     BOOL      konzetsu_challenge; // used only while effects are enabled

@@ -51,8 +51,9 @@ static void s_ensure_defaults(NSMutableDictionary *p) {
     if (!p[@"judgeFarMs"])  p[@"judgeFarMs"]  = @100;
     if (!p[@"judgeLostMs"]) p[@"judgeLostMs"] = @120;
     if (!p[@"judgeTimeLock"]) p[@"judgeTimeLock"] = @NO;
-    if (!p[@"rateAdaptOffset"]) p[@"rateAdaptOffset"] = @NO;
-    if (!p[@"rateAdaptFlow"]) p[@"rateAdaptFlow"] = @NO;
+    if (!p[@"rateAdapt"]) p[@"rateAdapt"] = @([p[@"rateAdaptOffset"] boolValue] || [p[@"rateAdaptFlow"] boolValue]);
+    [p removeObjectForKey:@"rateAdaptOffset"];
+    [p removeObjectForKey:@"rateAdaptFlow"];
     if (!p[@"konzetsuId"]) p[@"konzetsuId"] = @1;
     if (!p[@"konzetsuEnabled"]) p[@"konzetsuEnabled"] = @NO;
     if (!p[@"konzetsuChallenge"]) p[@"konzetsuChallenge"] = @NO;
@@ -135,8 +136,7 @@ void xrc_config_load(xrc_config_t *out) {
     out->judge_far_ms   = [prefs[@"judgeFarMs"] intValue];
     out->judge_lost_ms  = [prefs[@"judgeLostMs"] intValue];
     out->judge_time_lock = [prefs[@"judgeTimeLock"] boolValue];
-    out->rate_adapt_offset = [prefs[@"rateAdaptOffset"] boolValue];
-    out->rate_adapt_flow = [prefs[@"rateAdaptFlow"] boolValue];
+    out->rate_adapt = [prefs[@"rateAdapt"] boolValue];
     out->konzetsu_id = [prefs[@"konzetsuId"] intValue];
     if (out->konzetsu_id != 1 && out->konzetsu_id != 2 && out->konzetsu_id != 3
         && out->konzetsu_id != 4 && out->konzetsu_id != 6) out->konzetsu_id = 1;
@@ -170,8 +170,7 @@ void xrc_config_save(const xrc_config_t *c) {
     p[@"judgeFarMs"]    = @(c->judge_far_ms);
     p[@"judgeLostMs"]   = @(c->judge_lost_ms);
     p[@"judgeTimeLock"] = @(c->judge_time_lock);
-    p[@"rateAdaptOffset"] = @(c->rate_adapt_offset);
-    p[@"rateAdaptFlow"] = @(c->rate_adapt_flow);
+    p[@"rateAdapt"] = @(c->rate_adapt);
     p[@"konzetsuId"] = @(c->konzetsu_id);
     p[@"konzetsuEnabled"] = @(c->konzetsu_enabled);
     p[@"konzetsuChallenge"] = @(c->konzetsu_challenge);

@@ -19,7 +19,7 @@
 #include "XRCAudio.h"
 #import "XRCLog.h"
 extern uint64_t xrc_image_base(void);
-static _Atomic(bool) s_offset_enabled, s_flow_enabled;
+static _Atomic(bool) s_enabled;
 static _Atomic(int32_t) s_flow_original,s_flow_locked;
 static bool s_loaded_lock;
 static _Atomic(uint64_t) s_flow_settings;
@@ -61,7 +61,7 @@ static void s_migrate_flow(uint64_t settings,int32_t current) {
         double base=[p[@"nativeFlowBase"] doubleValue];
         int32_t legacy=0;
         if (xrc_live_flow_units([p[@"manualNoteFlow"] doubleValue],&manual)) legacy=(int32_t)manual;
-        else if (xrc_rate_adapt_flow_enabled() && isfinite(base) && base>0)
+        else if (xrc_rate_adapt_enabled() && isfinite(base) && base>0)
             legacy=base>=INT_MAX ? INT_MAX : (int32_t)fmax(1,round(base));
         if (legacy>0 && legacy!=current && !s_write_flow(settings,legacy)) return;
         [p removeObjectForKey:@"manualNoteFlow"];
@@ -96,16 +96,14 @@ void xrc_rate_adapt_install(void) {
     xrc_logi(XRCLC_BOOT,@"practice-adapt v1; practice-live-flow v1; practice-value-flow v1; practice-flow-lock v1: native highspeed_int shared setter=%d",s_setter_valid);
     xrc_rate_adapt_native_tick();
 }
-void xrc_rate_adapt_set_offset(bool enabled) { atomic_store(&s_offset_enabled,enabled); }
-void xrc_rate_adapt_set_flow(bool enabled) {
-    atomic_store(&s_flow_enabled,enabled);
+void xrc_rate_adapt_set_enabled(bool enabled) {
+    atomic_store(&s_enabled,enabled);
     if (s_setter_valid && [NSThread isMainThread]) xrc_rate_adapt_native_tick();
 }
-bool xrc_rate_adapt_offset_enabled(void) { return atomic_load(&s_offset_enabled); }
-bool xrc_rate_adapt_flow_enabled(void) { return atomic_load(&s_flow_enabled); }
-bool xrc_rate_adapt_flow_available(void) { return s_setter_valid && xrc_feature_complete("rate_flow"); }
+bool xrc_rate_adapt_enabled(void) { return atomic_load(&s_enabled); }
+bool xrc_rate_adapt_available(void) { return s_setter_valid && xrc_feature_complete("rate_flow"); }
 void xrc_rate_adapt_native_tick(void) {
-    if (![NSThread isMainThread] || !xrc_rate_adapt_flow_available()) return;
+    if (![NSThread isMainThread] || !xrc_rate_adapt_available()) return;
     uint64_t settings=s_settings();int32_t current=0;
     if (!settings || !s_read(settings+12,&current,4) || current<=0) return;
     atomic_store(&s_flow_settings,settings);
@@ -120,7 +118,7 @@ void xrc_rate_adapt_native_tick(void) {
     }
     if (!s_read(settings+12,&current,4) || current<=0) return;
     int32_t original=atomic_load(&s_flow_original);
-    if (xrc_rate_adapt_flow_enabled()) {
+    if (xrc_rate_adapt_enabled()) {
         if (!original) {
             atomic_store(&s_flow_original,current);
             atomic_store(&s_flow_locked,xrc_flow_value(current,xrc_clock_get_rate(),true));
@@ -143,10 +141,10 @@ void xrc_rate_adapt_preference_write(void *context) {
     if (settings && uc->uc_mcontext->__ss.__x[0]!=settings) return;
     int32_t locked=atomic_load(&s_flow_locked);
     uc->uc_mcontext->__ss.__x[1]=(uint32_t)xrc_flow_lock_write(
-        (int32_t)uc->uc_mcontext->__ss.__x[1],locked,xrc_rate_adapt_flow_enabled());
+        (int32_t)uc->uc_mcontext->__ss.__x[1],locked,xrc_rate_adapt_enabled());
 }
 bool xrc_rate_adapt_set_native_flow(double speed) {
-    if (xrc_rate_adapt_flow_enabled() || atomic_load(&s_flow_original)>0) return false;
+    if (xrc_rate_adapt_enabled() || atomic_load(&s_flow_original)>0) return false;
     uint64_t units=0;
     if (!xrc_live_flow_units(speed,&units) || ![NSThread isMainThread]) return false;
     if (!s_write_flow(s_settings(),(int32_t)units)) return false;
@@ -165,9 +163,9 @@ void xrc_rate_adapt_frame_begin(void *scene,void *ng) {
         s_scene=(uint64_t)scene;s_ng=(uint64_t)ng;s_clock=clock;s_song=song;s_extra=0;
         xrc_rate_adapt_native_tick();
     }
-    s_original_offset=xrc_rate_adapt_offset_enabled() ? s_preference_offset() : 0;
+    s_original_offset=xrc_rate_adapt_enabled() ? s_preference_offset() : 0;
     int32_t desired_offset=xrc_adapt_offset_extra(s_original_offset,xrc_clock_get_rate(),
-                                                  xrc_rate_adapt_offset_enabled());
+                                                  xrc_rate_adapt_enabled());
     // Music-enabled gameplay applies offset and DSP delay together in one absolute write.
     if (!xrc_audio_speed_enabled() && desired_offset!=s_extra) {
         int32_t base=0;

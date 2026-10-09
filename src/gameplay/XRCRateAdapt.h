@@ -3,11 +3,9 @@
 #include <stdint.h>
 
 void xrc_rate_adapt_install(void);
-void xrc_rate_adapt_set_offset(bool enabled);
-void xrc_rate_adapt_set_flow(bool enabled);
-bool xrc_rate_adapt_offset_enabled(void);
-bool xrc_rate_adapt_flow_enabled(void);
-bool xrc_rate_adapt_flow_available(void);
+void xrc_rate_adapt_set_enabled(bool enabled);
+bool xrc_rate_adapt_enabled(void);
+bool xrc_rate_adapt_available(void);
 bool xrc_rate_adapt_set_native_flow(double speed); // writes the native setting only while unlocked
 double xrc_rate_adapt_native_flow(void);
 void xrc_rate_adapt_native_tick(void);

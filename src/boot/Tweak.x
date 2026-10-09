@@ -327,8 +327,7 @@ static void onAppLaunched(CFNotificationCenterRef center, void *observer,
 // 后台线程跑，因此 %ctor 即设好（doBootstrap 太晚）。%ctor 与 doBootstrap 都调用
 //（幂等，均为原子写）。
 static void xrc_apply_switches(void) {
-    xrc_rate_adapt_set_offset(g_cfg.rate_adapt_offset);
-    xrc_rate_adapt_set_flow(g_cfg.rate_adapt_flow);
+    xrc_rate_adapt_set_enabled(g_cfg.rate_adapt);
     xrc_konzetsu_configure(g_cfg.konzetsu_id, g_cfg.konzetsu_enabled, g_cfg.konzetsu_challenge);
     @try {
         xrc_brk_set_unlock_own(g_cfg.unlock_own);
