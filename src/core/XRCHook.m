@@ -676,30 +676,6 @@ static void s_rpf_arctick(void *vctx) { s_arcr_entry_exit(vctx); }
 static void s_rpf_arcpass(void *vctx) { s_arcr_entry_exit(vctx); }
 #endif
 
-// ---- 弧分段「藏」→「显」的两处桩（只在 seek 回跳窗口内开启）----
-// 桩打在 `MOV W1,#0`（52800001）这条上 —— 它的 W1 就是紧接着 setVisible(child, W1) 的参数。
-// 站点的选择见 XRCProfile.h 的长注释：不碰 PC、不调游戏函数、不需要跳板。
-//
-// ⚠️ 关键：handler 把 BRK 顶掉的那条 MOV **复现**出来 —— 平时写 W1=0（=原行为，逐字节等价），
-//    「回跳窗口」内置位后写 W1=1 ⇒ 引擎自己把分段显回来。窗口由回跳状态机驱动（回跳起 → 涨回旧水位）。
-// 只改 X1 一个寄存器，PC 推到 site+4；无重入、无分配、无锁。
-static _Atomic(int) s_arc_nohide = 0;
-
-void xrc_arc_nohide_set(int on) { atomic_store(&s_arc_nohide, on ? 1 : 0); }
-int  xrc_arc_nohide_get(void)    { return atomic_load(&s_arc_nohide); }
-
-static void s_arc_hide_x(void *vctx) {
-    ucontext_t *uc = (ucontext_t *)vctx;
-    if (!uc || !uc->uc_mcontext) return;
-    __typeof__(uc->uc_mcontext->__ss) *ss = &uc->uc_mcontext->__ss;
-    /* 复现 `MOV W1,#0`；回跳窗口内改成 1（显） */
-    ss->__x[1] = atomic_load(&s_arc_nohide) ? 1u : 0u;
-    __darwin_arm_thread_state64_set_pc_fptr(*ss,
-        (void *)((uint64_t)__darwin_arm_thread_state64_get_pc(*ss) + 4));
-}
-static void s_arc_hide_a(void *vctx) { s_arc_hide_x(vctx); }
-static void s_arc_hide_b(void *vctx) { s_arc_hide_x(vctx); }
-
 static const xrc_brk_entry_t k_brk_entries[] = {
 #if defined(XRC_GAME_VERSION_7_0_256)
     { "konzetsu_chart", 0x910CE0ULL, 0x146C188ULL, xrc_konzetsu_chart },
@@ -745,9 +721,6 @@ static const xrc_brk_entry_t k_brk_entries[] = {
     { "rpf_draw",         XRC_BRK_RPF_DRAW_SITE_OFF,        0,                                   s_rpf_draw },
     { "rpf_arctick",      XRC_BRK_RPF_ARCTICK_SITE_OFF,     0,                                   s_rpf_arctick },
     { "rpf_arcpass",      XRC_BRK_RPF_ARCPASS_SITE_OFF,     0,                                   s_rpf_arcpass },
-    // 弧分段「藏」→「显」（handler 只改 W1；见上方 s_arc_hide_x 注释）
-    { "arc_hide_a",       XRC_BRK_ARC_HIDE_A_SITE_OFF,      0,                                   s_arc_hide_a },
-    { "arc_hide_b",       XRC_BRK_ARC_HIDE_B_SITE_OFF,      0,                                   s_arc_hide_b },
 };
 
 // ---- 未注册桩位自愈 ----

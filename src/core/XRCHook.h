@@ -65,7 +65,6 @@ uint32_t    xrc_brk_lock_hits(void);
 
 // ---- 回跳重播配套（XRCReplay / 面板使用）----
 void xrc_arc_stubs_lite_set(int on);   // 观测桩轻量模式（发布构建为空操作）
-void xrc_arc_nohide_set(int on);       // 弧分段「藏→显」窗口开关（回跳窗口内）
 void xrc_ap_latch_reset(void);         // autoplay「每音符一次」闩复位（回跳/换场景必清）
 
 // ---- applog 明文捕获 ----

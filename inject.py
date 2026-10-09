@@ -192,10 +192,6 @@ FEATURES = [
     # 音符表 ⇒ 帧时间随弧数浮动。默认不进 release（需要时 --features rpf_arcprobe）。
     ("rpf_arcprobe",   ["rpf_draw", "rpf_arctick", "rpf_arcpass"],                False, "debug",
      "弧/绘制观测桩（只观测不改行为；高频负载，默认不进 release）"),
-    # 回跳窗口内把弧分段的「藏」反成「显」；窗口外与未打桩逐字节同行为。
-    # 注意：它与渲染重建的显示路径叠加会让弧越过判定线——默认不进 release。
-    ("arc_nohide",     ["arc_hide_a", "arc_hide_b"],                               False, "debug",
-     "回跳期把弧分段的「藏」反成「显」（默认不进 release）"),
     ("applog_capture", ["applog_send", "applog_blob"],                             False, "debug",
      "applog 明文/密文采集（调试；默认不落盘，仅 brk 分支构建含）"),
 ]
@@ -233,7 +229,7 @@ def sites_for(feat_names):
     return keep
 
 
-RETIRED_FLOW_HOOKS = [h for h in BRK_HOOKS if h[0].startswith('native_flow_') or h[0]=='adapt_window']
+RETIRED_FLOW_HOOKS = [h for h in BRK_HOOKS if h[0].startswith('native_flow_') or h[0] in ('adapt_window','arc_hide_a','arc_hide_b')]
 BRK_HOOKS = [h for h in BRK_HOOKS if h not in RETIRED_FLOW_HOOKS]
 BRK_HOOKS.append(('flow_setter',0x100BD514C,0x1014681C0,'010c00b9'))
 
@@ -835,18 +831,21 @@ def restore_retired_flow(data: bytearray) -> list[tuple[int,int]]:
     base=fat_arm64_slice_offset(data)
     plan=[]
     for name,site,replay,expected in RETIRED_FLOW_HOOKS:
-        off=base+site-0x100000000; rf=base+replay-0x100000000
+        off=base+site-0x100000000; rf=base+replay-0x100000000 if replay else None
         old=bytes.fromhex(expected)
-        jump=old+struct.pack('<I',encode_b(replay+4,site+4))
+        jump=old+struct.pack('<I',encode_b(replay+4,site+4)) if replay else None
         if bytes(data[off:off+4]) not in (old,BRK_INSN):
             raise RuntimeError(f'retired flow fingerprint mismatch: {name}')
-        if bytes(data[rf:rf+8]) not in (b'\0'*8,jump):
+        if rf is not None and bytes(data[rf:rf+8]) not in (b'\0'*8,jump):
             raise RuntimeError(f'retired flow replay mismatch: {name}')
         plan.append((off,rf,old))
     regions=[]
     for off,rf,old in plan:
-        data[off:off+4]=old;data[rf:rf+8]=b'\0'*8
-        regions.extend(((off,off+4),(rf,rf+8)))
+        data[off:off+4]=old
+        regions.append((off,off+4))
+        if rf is not None:
+            data[rf:rf+8]=b'\0'*8
+            regions.append((rf,rf+8))
     return regions
 
 

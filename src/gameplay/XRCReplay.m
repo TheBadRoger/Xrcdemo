@@ -231,7 +231,6 @@ static int rpf_note_consumed(uint64_t note) {
 }
 
 // ================================================================ 重播功能主线
-extern void xrc_arc_nohide_set(int on);   // XRCHook 导出
 extern void xrc_ap_latch_reset(void);     // XRCHook 导出
 extern void xrc_freeze_end(void);         // XRCGameplay 导出
 
@@ -1542,38 +1541,6 @@ void xrc_replay_seek(uint64_t scene, uint32_t target, uint32_t previous) {
     rpf_reset_dispatch(ng, target, previous);
 }
 
-// ---------------------------------------------------------------- 弧分段「不藏」开关
-// **只在 seek 回跳发生时**把弧的「藏」反过来变成「显」。dylib 侧的桩打在
-// setVisible 的实参上，handler 平时写 0（=原行为），置位后写 1（=显回来）。
-// 窗口 = 回跳那一刻 → 播放头重新涨回**回跳前的水位 P**；过了 P 之后前方的弧全是"新"的，
-// 隐藏行为本来就正确，所以自动关。另加 60s 安全上限（≈1200 拍）兜底。
-// 未置位时本模块**一个字节都不发** ⇒ 正常游玩零影响。
-static int      s_nh_on    = 0;
-static uint32_t s_nh_P     = 0;
-static int      s_nh_left  = 0;      /* 剩余拍数（安全上限） */
-
-static void rpf_nohide_begin(uint32_t P) {
-    s_nh_P = P;
-    s_nh_left = 1200;                    /* 50ms × 1200 = 60s */
-    if (!s_nh_on) {
-        s_nh_on = 1;
-        xrc_arc_nohide_set(1);
-        xrc_logd(XRCLC_JUDGE, @"[rpf] ⟲ 弧分段「不藏」开启：窗口到水位 P=%u（涨回来自动关）", P);
-    }
-}
-
-static void rpf_nohide_tick(uint32_t now) {
-    if (!s_nh_on) return;
-    if (s_nh_left > 0) s_nh_left--;
-    int caught = ((int32_t)s_nh_P - (int32_t)now) < 500;   /* 已涨回（或越过）旧水位 */
-    if (caught || s_nh_left <= 0) {
-        s_nh_on = 0;
-        xrc_arc_nohide_set(0);
-        xrc_logd(XRCLC_JUDGE, @"[rpf] ⟲ 弧分段「不藏」关闭（%s）：now=%d P=%u",
-               caught ? "已涨回旧水位" : "超时 60s", (int)now, s_nh_P);
-    }
-}
-
 static void rpf_fast_tick(void) {
     uint64_t scene = xrc_gameplay_instance();
     if (!s_ishp(scene)) scene = 0;
@@ -1642,7 +1609,6 @@ static void rpf_fast_tick(void) {
         uint64_t clk = 0;
         if (rd(ng + 0x30, &clk, 8) && s_ishp(clk)) {
             uint32_t now = rpf_now_ms(ng);
-            rpf_nohide_tick(now);   /* 回跳窗口的收尾（涨回旧水位/超时即关） */
             // 必须用**有符号比较**：前导期播放头为负，`rpf_now_ms` 返回的 uint32 落在
             //   UINT32_MAX 附近（真机：4294966955 → 4294967005），无符号下 `now + 300`
             //   回绕成 9 ⇒ 每首歌的前导期都会被误判成回跳。有符号下
@@ -1657,11 +1623,7 @@ static void rpf_fast_tick(void) {
                 xrc_logd(XRCLC_JUDGE, @"[rpf] ⟲ 检出回跳：%d → %d（回落 %d ms）ng 已稳定 %d 拍",
                        dwm, dnow, dwm - dnow, s_ng_stable);
                 s_seek_wm = now;
-                /* 回跳窗口内把弧分段的「藏」反过来（dylib 桩），涨回旧水位自动关。
-                   音符恢复与成绩开关独立，每次回退都介入。 */
-                /* 重建开启时**不反着改可见性** —— 引擎逐帧把"头之后"的分段藏掉是
-                   *正常裁剪*（弧该停在判定线），把 W1 改成 1 等于把它留住 ⇒ 弧穿透判定线。 */
-                if (!s_rebuild_on) rpf_nohide_begin((uint32_t)dwm);
+                /* 每次回退恢复音符状态，保留原生可见性裁剪。 */
                 // **引擎状态重置**（三笔写 + 自检）。这是全部动作的唯一入口。
                 // 只做"清零 + 开闸门"，不重建任何对象、不释放任何东西、不碰节点树。
                 // **主队列执行**（探针线程只检出，不落笔）—— 见 rpf_reset_dispatch 上方注释。

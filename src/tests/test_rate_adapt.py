@@ -29,7 +29,7 @@ class RateAdaptTests(unittest.TestCase):
             self.assertIn('flow_setter',sites)
             self.assertFalse(any(n.startswith('native_flow_') for n in sites))
             self.assertNotIn('adapt_window',sites)
-            self.assertEqual(len(inject.RETIRED_FLOW_HOOKS),7)
+            self.assertEqual(len(inject.RETIRED_FLOW_HOOKS),9)
 
     def test_migration_restores_render_instructions_and_is_idempotent(self):
         for version in ('7.0.255','7.0.256'):
@@ -39,11 +39,11 @@ class RateAdaptTests(unittest.TestCase):
             for name,site,replay,expected in inject.RETIRED_FLOW_HOOKS:
                 off=site-0x100000000; rf=replay-0x100000000
                 data[off:off+4]=inject.BRK_INSN
-                data[rf:rf+8]=bytes.fromhex(expected)+struct.pack('<I',inject.encode_b(replay+4,site+4))
+                if replay: data[rf:rf+8]=bytes.fromhex(expected)+struct.pack('<I',inject.encode_b(replay+4,site+4))
             inject.restore_retired_flow(data)
             for name,site,replay,expected in inject.RETIRED_FLOW_HOOKS:
                 self.assertEqual(data[site-0x100000000:site-0x100000000+4],bytes.fromhex(expected))
-                self.assertEqual(data[replay-0x100000000:replay-0x100000000+8],b'\0'*8)
+                if replay: self.assertEqual(data[replay-0x100000000:replay-0x100000000+8],b'\0'*8)
             before=data[:]; inject.restore_retired_flow(data);self.assertEqual(data,before)
             name,site,replay,expected=inject.RETIRED_FLOW_HOOKS[-1]
             data[site-0x100000000:site-0x100000000+4]=b'\xff'*4

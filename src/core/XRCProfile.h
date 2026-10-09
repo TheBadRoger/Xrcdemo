@@ -328,10 +328,6 @@
 //   不调游戏函数、不需要跳板（B 的 ±128MB 也够不到我们的 __TEXT 空页）。
 // 行为：handler 平时**一个字都不改**（⇒ 与未打桩逐字节同行为），仅在插件置位的
 //   「回跳窗口」内把 W1 改成 1 ⇒ 引擎自己把分段显回来。窗口 = 回跳起 → 播放头涨回旧水位 P。
-#define XRC_BRK_ARC_HIDE_A_SITE_OFF    0xAFFB60ULL     // MOV W1,#0（VA 0x100AFFB60）
-#define XRC_BRK_ARC_HIDE_A_REPLAY_OFF  0ULL
-#define XRC_BRK_ARC_HIDE_B_SITE_OFF    0xAFFE80ULL     // MOV W1,#0（VA 0x100AFFE80）
-#define XRC_BRK_ARC_HIDE_B_REPLAY_OFF  0ULL
 // ⚠ 站点值一律是**文件偏移**，不是完整 VA：分发处是 `pc == mb + site_off`（XRCHook.m s_sigtrap）。
 //   写成 VA 的后果：分发永不匹配 ⇒ BRK 落进无处理器路径 ⇒ 开歌 SIGTRAP 秒崩；自检读越界 ⇒ brk_sites 少 3。
 // 自动演奏站点处理器引用的 7.0 布局常量（出处见上节）。

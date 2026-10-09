@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[2]
 class ReplaySeekTests(unittest.TestCase):
     def test_restoration_is_independent_of_score_policy(self):
         source = (ROOT / "src/gameplay/XRCReplay.m").read_text(encoding="utf-8")
-        seek = source.split("void xrc_replay_seek(", 1)[1].split("static int      s_nh_on", 1)[0]
+        seek = source.split("void xrc_replay_seek(", 1)[1].split("static void rpf_fast_tick", 1)[0]
         self.assertNotIn("s_reset_score", seek)
         self.assertIn("rpf_reset_dispatch(ng, target, previous)", seek)
         self.assertIn("if (s_reset_score && !s_no_score) rpf_score_reset(ng, T);", source)
