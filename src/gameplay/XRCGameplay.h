@@ -64,3 +64,7 @@ bool xrc_gameplay_seek_active(void);
 
 // 最新已完成跳转的结果；序号 0 表示尚无结果（面板主线程读取）。
 uint64_t xrc_gameplay_seek_result(bool *success);
+
+bool xrc_gameplay_scrub_begin(void);
+void xrc_gameplay_scrub_cancel(void);
+void xrc_gameplay_set_rate(double rate);

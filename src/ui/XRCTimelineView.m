@@ -37,19 +37,24 @@
 
 - (void)onPan:(UIPanGestureRecognizer *)g {
     CGPoint p = [g locationInView:self];
-    if (g.state == UIGestureRecognizerStateBegan) _dragging = YES;
+    if (g.state == UIGestureRecognizerStateBegan) {
+        _dragging=!self.onScrubBegin || self.onScrubBegin();
+        if (!_dragging) { g.enabled=NO; g.enabled=YES; return; }
+    }
     // 拖动 = 纯 seek 预览，松手执行。
     // 循环区间只由「设起点/设终点」按钮写入。
-    if (g.state == UIGestureRecognizerStateChanged) {
+    if (_dragging && g.state == UIGestureRecognizerStateChanged) {
         _positionMs = [self msAtX:p.x];
         [self setNeedsDisplay];
     }
-    if (g.state == UIGestureRecognizerStateEnded) {
+    if (_dragging && g.state == UIGestureRecognizerStateEnded) {
         _dragging = NO;
         if (self.onScrub) self.onScrub([self msAtX:p.x], YES);
     }
-    if (g.state == UIGestureRecognizerStateCancelled || g.state == UIGestureRecognizerStateFailed)
+    if (g.state == UIGestureRecognizerStateCancelled || g.state == UIGestureRecognizerStateFailed) {
+        if (_dragging && self.onScrubCancel) self.onScrubCancel();
         _dragging = NO;
+    }
 }
 
 - (void)drawRect:(CGRect)rect {

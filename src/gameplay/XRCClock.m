@@ -4,6 +4,7 @@
 #import <Foundation/Foundation.h>
 #import "XRCLog.h"          // 拒绝非法 rate 时留痕
 #include "XRCClock.h"
+#include "XRCClockMath.h"
 
 static _Atomic(uint64_t) s_t0_real_us = 0;
 static _Atomic(uint64_t) s_t0_warp_us = 0;
@@ -30,9 +31,7 @@ static uint64_t s_compute_warp_us(uint64_t real_us) {
     double rate = xrc_clock_get_rate();
     uint64_t t0r = atomic_load(&s_t0_real_us);
     uint64_t t0w = atomic_load(&s_t0_warp_us);
-    if (t0r == 0 || (rate >= 0.999 && rate <= 1.001)) return real_us;
-    if (real_us <= t0r) return t0w;
-    return t0w + (uint64_t)((double)(real_us - t0r) * rate);
+    return xrc_clock_warp_value(real_us,t0r,t0w,rate);
 }
 
 void xrc_clock_warp_reset(void) {

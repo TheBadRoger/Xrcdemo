@@ -197,3 +197,16 @@ bool xrc_player_pause(bool paused) {
     if (!fn) return false;
     return fn(self, paused ? 1 : 0, 0) == 0;
 }
+
+void *xrc_player_bgm_group(void *player) {
+    return player ? *(void **)((char *)player+XRC_PLAYER_BGM_GROUP_OFF) : NULL;
+}
+bool xrc_player_read_paused(void *player, bool *paused) {
+    void *group=xrc_player_bgm_group(player);
+    if (!group || !paused) return false;
+    extern uint64_t xrc_image_base(void);
+    typedef int (*get_paused_fn)(void *, int *);
+    int value=0;
+    if (((get_paused_fn)(xrc_image_base()+XRC_OFF_FMOD_GET_PAUSED))(group,&value)!=0) return false;
+    *paused=value!=0; return true;
+}

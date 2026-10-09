@@ -7,6 +7,7 @@
 #import <Foundation/Foundation.h>
 #import "XRCLog.h"    // xrc_log
 #include <limits.h>
+#include <math.h>
 #include <objc/runtime.h>
 #include <sys/mman.h>
 #include <errno.h>
@@ -20,6 +21,7 @@
 #include "XRCRateAdapt.h"
 #include "XRCPlayer.h"
 #include "XRCReplay.h"
+#include "XRCArcFlow.h"
 #include "XRCSeekMath.h"
 #include "XRCProfile.h"
 
@@ -47,6 +49,10 @@ static _Atomic(uint64_t) s_pending_scene = 0;   // 登记请求时的 scene 指�
 #define XRC_OP_MAX_IDLE_US  (4000 * 1000ULL)    // 请求超过 4s 未执行 → 丢弃
 
 static uint64_t s_pending_created_us;
+static _Atomic(bool) s_hold;
+static bool s_hold_resume, s_dragging;
+static void *s_hold_scene, *s_hold_player, *s_hold_group;
+static int32_t s_hold_chart;
 
 bool xrc_gameplay_request(xrc_op_t op, uint32_t param_ms) {
     if (![NSThread isMainThread] || op == XRC_OP_NONE || op > XRC_OP_LOOP_REWIND) return false;
@@ -59,6 +65,7 @@ bool xrc_gameplay_request(xrc_op_t op, uint32_t param_ms) {
     atomic_store(&s_pending_ms, param_ms);
     s_pending_created_us = xrc_real_now_us();
     atomic_store(&s_pending_op, op);
+    if (op==XRC_OP_SEEK) s_dragging=false;
     return true;
 }
 
@@ -127,7 +134,7 @@ static void s_retry_watch_tick(void) {
 }
 
 // A seek owns one scene/player/clock until acknowledgement and replay completion.
-// The audio channel keeps its existing paused state; never unpause a user's pause menu.
+// Pause ownership preserves an already paused channel.
 #define XRC_FRZ_OFF 0
 #define XRC_FRZ_FROZEN 1
 #define XRC_FRZ_RESYNC 2
@@ -159,7 +166,7 @@ uint64_t xrc_gameplay_seek_result(bool *success) {
     return s_seek_result_sequence;
 }
 
-bool xrc_gameplay_seek_active(void) { return atomic_load(&s_frz_state) != XRC_FRZ_OFF; }
+bool xrc_gameplay_seek_active(void) { return s_hold || atomic_load(&s_frz_state) != XRC_FRZ_OFF; }
 
 static void xrc_clock_shift_to(void *note_group, int32_t target) {
     if (!note_group) return;
@@ -171,13 +178,60 @@ static void xrc_clock_shift_to(void *note_group, int32_t target) {
     *base = value > INT_MAX ? INT_MAX : value < INT_MIN ? INT_MIN : (int32_t)value;
 }
 
+static void s_hold_end(void) {
+    void *player=xrc_player_get();
+    bool resume=xrc_seek_can_resume(s_hold_resume,(uint64_t)s_hold_scene,
+        (uint64_t)s_hold_player,(uint64_t)s_hold_group,(uint64_t)atomic_load(&xrc_gp_instance),
+        (uint64_t)player,(uint64_t)xrc_player_bgm_group(player));
+    s_hold=false; s_hold_resume=false; s_dragging=false;
+    if (resume) xrc_player_pause(false);
+    s_gp_last_real_us=0; s_retime_rem_us=0; s_retime_acc=0;
+}
+static bool s_hold_begin(void) {
+    void *scene=atomic_load(&xrc_gp_instance), *player=xrc_player_get();
+    void *ng=s_valid_note_group(scene); bool paused=false;
+    if (s_hold) return s_hold_scene==scene && s_hold_player==player &&
+        s_hold_group==xrc_player_bgm_group(player);
+    if (!ng || !s_sync_have_calibration || s_sync_scene!=scene || s_sync_ng!=ng ||
+        s_sync_player!=player || !xrc_player_read_paused(player,&paused)) return false;
+    if (!paused && !xrc_player_pause(true)) return false;
+    s_hold=true; s_hold_resume=!paused; s_hold_scene=scene; s_hold_player=player;
+    s_hold_group=xrc_player_bgm_group(player); s_hold_chart=xrc_chart_clock_ms(ng);
+    return true;
+}
+bool xrc_gameplay_scrub_begin(void) {
+    if (![NSThread isMainThread] || !s_hold_begin()) return false;
+    s_dragging=true; return true;
+}
+void xrc_gameplay_scrub_cancel(void) {
+    if (![NSThread isMainThread]) return;
+    s_dragging=false;
+    if (atomic_load(&s_frz_state)==XRC_FRZ_OFF) s_hold_end();
+}
+void xrc_gameplay_set_rate(double rate) {
+    if (![NSThread isMainThread] || !isfinite(rate) || rate<0.01 || rate>4) return;
+    uint32_t audio=0;
+    if (!xrc_player_read_position(xrc_player_get(),&audio) || !s_hold_begin()) {
+        xrc_clock_set_rate(rate); return;
+    }
+    xrc_clock_set_rate(rate);
+    // The chart is stopped on this main-thread callback. Apply the DSP delay first,
+    // then seek/rebuild against the new latency, rather than judging at an old base.
+    if (atomic_load(&s_frz_state)==XRC_FRZ_OFF) {
+        s_hold=false; xrc_audio_speed_tick();
+        xrc_rate_adapt_frame_begin(s_hold_scene,s_valid_note_group(s_hold_scene));
+        s_hold=true;
+    }
+    s_dragging=false;
+    if (!xrc_gameplay_request(XRC_OP_SEEK,audio)) s_hold_end();
+}
 static bool s_seek_context_valid(void *ng) {
     return atomic_load(&xrc_gp_instance) == s_seek_scene && ng == s_seek_ng &&
            xrc_player_get() == s_seek_player;
 }
 
 static void s_seek_finish(bool success) {
-    if (!xrc_gameplay_seek_active()) return;
+    if (atomic_load(&s_frz_state)==XRC_FRZ_OFF) return;
     // Release the frozen epoch before the final write. Mark the audio retreat as
     // plugin-owned before audio tick resumes, preventing a second DSP bump.
     if (s_seek_has_freeze) {
@@ -185,7 +239,9 @@ static void s_seek_finish(bool success) {
     }
     xrc_audio_seek_finished();
     atomic_store(&s_frz_state,XRC_FRZ_OFF);
+    s_hold=false;
     xrc_audio_speed_tick();
+    if (s_seek_context_valid(s_seek_ng)) xrc_rate_adapt_frame_begin(s_seek_scene,s_seek_ng);
     uint32_t audio=0;
     if (s_seek_context_valid(s_seek_ng) && xrc_player_read_position(s_seek_player,&audio)) {
         int32_t delay=xrc_seek_output_delay(xrc_audio_effective_rate(),xrc_audio_output_latency_ms());
@@ -197,6 +253,10 @@ static void s_seek_finish(bool success) {
                  s_seek_sequence,audio,xrc_chart_clock_ms(s_seek_ng),
                  (int64_t)xrc_chart_clock_ms(s_seek_ng)-audio);
     }
+    bool valid=s_seek_context_valid(s_seek_ng);
+    if (valid) s_hold_chart=xrc_chart_clock_ms(s_seek_ng);
+    if (!valid || (!s_dragging && atomic_load(&s_pending_op)==XRC_OP_NONE)) s_hold_end();
+    else s_hold=true;
     s_sync_reconcile_frames=2;
     s_seek_result_sequence = s_seek_sequence;
     s_seek_result_success = success;
@@ -243,9 +303,10 @@ static void s_frz_tick(void *ng) {
             atomic_store(&s_frz_state, XRC_FRZ_REBUILD);
             xrc_logi(XRCLC_JUDGE, @"[seek] #%llu landed audio=%u chart=%d offset=%d",
                      s_seek_sequence, audio, chart, s_seek_offset);
-            if (chart < s_seek_previous)
-                xrc_replay_seek((uint64_t)s_seek_scene, chart > 0 ? (uint32_t)chart : 0,
+            xrc_arc_flow_prepare_seek();
+            xrc_replay_seek((uint64_t)s_seek_scene, chart > 0 ? (uint32_t)chart : 0,
                                 (uint32_t)s_seek_previous);
+            xrc_arc_flow_frame(s_seek_scene,1.0,chart);
             xrc_freeze_end(); // Also closes no-replay/no-note paths.
         } else if (now >= s_seek_deadline_us) {
             // Never commit a failed target. Restore chart/audio relationship if readable.
@@ -289,13 +350,14 @@ static void s_capture_sync_calibration(void *scene,void *ng) {
 }
 
 static void s_exec_pending(void *self) {
-    if (xrc_gameplay_seek_active()) return;
+    if (atomic_load(&s_frz_state)!=XRC_FRZ_OFF || s_dragging) return;
     uint32_t op = atomic_load(&s_pending_op);
     if (op == XRC_OP_NONE) return;
     uint64_t now = xrc_real_now_us();
     if (atomic_load(&s_pending_scene) != (uint64_t)self ||
         now - s_pending_created_us > XRC_OP_MAX_IDLE_US) {
         atomic_store(&s_pending_op, XRC_OP_NONE);
+        if (s_hold && !s_dragging) s_hold_end();
         s_seek_result_sequence = ++s_seek_sequence;
         s_seek_result_success = false;
         xrc_logi(XRCLC_JUDGE, @"[seek] #%llu pending cancelled: expired or scene changed", s_seek_sequence);
@@ -322,11 +384,12 @@ static void s_exec_pending(void *self) {
     int64_t offset=xrc_seek_runtime_offset(s_sync_offset,delay,xrc_rate_adapt_offset_extra(ng));
     xrc_logi(XRCLC_JUDGE, @"[seek-sync] measured=%lld calibration=%d outputDelay=%d baseline=%lld rate=%.3f music=%d",
              measured, s_sync_offset, delay, offset, rate, music);
+    if (!s_hold_begin()) return;
     atomic_store(&s_pending_op, XRC_OP_NONE);
     if (offset < INT_MIN || offset > INT_MAX) return;
     s_seek_scene = self; s_seek_ng = ng; s_seek_player = player;
     s_sync_reconcile_frames=0;
-    s_seek_audio_rate=audioRate;
+    s_seek_audio_rate=0; // paused acknowledgement excludes playback advance
     s_seek_audio_target = target; s_seek_offset = (int32_t)offset;
     s_seek_previous = chart;
     s_seek_started_us = now; s_seek_deadline_us = now + XRC_FRZ_MAX_US;
@@ -541,6 +604,20 @@ void xrc_gameplay_update(void *self, uint64_t a2, uint64_t a3, uint64_t a4, uint
                 }
                 s_stall_since = now_us;
             }
+        }
+    }
+    if (s_hold) {
+        void *ng=s_valid_note_group(self);
+        if (self!=s_hold_scene || xrc_player_get()!=s_hold_player ||
+            xrc_player_bgm_group(s_hold_player)!=s_hold_group || !ng) {
+            s_seek_finish(false); s_hold_end();
+        } else {
+            extern uint64_t xrc_image_base(void);
+            void *clock=*(void **)((char *)ng+XRC_CLOCK_IN_NOTEGROUP_OFF);
+            ((void (*)(void *))(xrc_image_base()+XRC_OFF_CLOCK_TICK))(clock);
+            if (atomic_load(&s_frz_state)==XRC_FRZ_OFF) xrc_clock_shift_to(ng,s_hold_chart);
+            else s_frz_tick(ng);
+            return;
         }
     }
     // 音乐变速：低频去重 tick —— 速度变了/换歌了/组刚建才动作。

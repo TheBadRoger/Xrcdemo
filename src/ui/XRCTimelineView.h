@@ -5,6 +5,8 @@
 #import <UIKit/UIKit.h>
 
 @interface XRCTimelineView : UIView
+@property (nonatomic, copy) BOOL (^onScrubBegin)(void);
+@property (nonatomic, copy) void (^onScrubCancel)(void);
 @property (nonatomic, copy) void (^onScrub)(uint32_t ms, BOOL finished);
 @property (nonatomic, assign) uint32_t lengthMs;
 @property (nonatomic, assign) uint32_t positionMs;

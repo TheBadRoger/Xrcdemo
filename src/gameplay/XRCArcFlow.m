@@ -104,7 +104,7 @@ void xrc_arc_flow_frame(void *scene,double factor,int chart_ms) {
     for (size_t i=0;i<s_count;++i) {
         arc_t *arc=&s_arcs[i];
         if (!arc->live || !arc->segments || chart_ms>arc->end_ms) continue;
-        if (arc->factor==factor && (factor==1 || chart_ms<arc->start_ms)) continue;
+        if (arc->factor==factor) continue;
         if (read64(arc->render+0x268)!=arc->logic ||
             read64(arc->logic)!=xrc_image_base()+XRC_LN_VPTR_ARC) continue;
         uint64_t cb=0,ce=0;
@@ -116,7 +116,10 @@ void xrc_arc_flow_frame(void *scene,double factor,int chart_ms) {
             if (read64(cb+j*8)!=s->node || read64(s->node)!=s->vtable) continue;
             float target[24],current[24];
             if (!read_mem(s->node+0x2b4,current,sizeof(current))) continue;
-            xrc_arc_flow_geometry(target,s->original,current,factor,chart_ms>=arc->start_ms);
+            bool clipped=chart_ms>=arc->start_ms &&
+                (current[0]!=s->original[0] || current[1]!=s->original[1] ||
+                 fabsf(current[2]-xrc_native_flow_distance(s->original[2],arc->factor))>0.001f);
+            xrc_arc_flow_geometry(target,s->original,current,factor,clipped);
             if (memcmp(current,target,sizeof(target))) {
                 memcpy((void *)(s->node+0x2b4),target,sizeof(target));
                 s_mesh((void *)s->node); // updates native vertex buffers, not node scale
@@ -124,4 +127,21 @@ void xrc_arc_flow_frame(void *scene,double factor,int chart_ms) {
         }
         arc->factor=factor;
     }
+}
+
+// Restore canonical endpoints before replay can reuse an existing segment node.
+void xrc_arc_flow_prepare_seek(void) {
+    if (![NSThread isMainThread]) return;
+    for (size_t i=0;i<s_count;++i) {
+        arc_t *a=&s_arcs[i]; uint64_t b=0,e=0;
+        if (!a->live || !a->segments || read64(a->render+0x268)!=a->logic ||
+            !children(a->render,&b,&e) || b!=a->begin || e!=a->end) continue;
+        for (size_t j=0;j<a->count;++j) {
+            segment_t *n=&a->segments[j];
+            if (read64(b+j*8)!=n->node || read64(n->node)!=n->vtable) continue;
+            memcpy((void *)(n->node+0x2b4),n->original,sizeof(n->original));
+            s_mesh((void *)n->node);
+        }
+    }
+    xrc_arc_flow_reset();
 }

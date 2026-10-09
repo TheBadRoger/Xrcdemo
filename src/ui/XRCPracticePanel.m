@@ -230,6 +230,7 @@ static NSString *const kNoteDev =
 }
 
 - (void)hide {
+    xrc_gameplay_scrub_cancel();
     [self.timer invalidate]; self.timer = nil;
     [self removeFromSuperview];
     xrc_logd(XRCLC_UI, @"panel hidden");
@@ -319,9 +320,13 @@ static NSString *const kNoteDev =
     y += secH + 4;
     UIView *c1 = [self cardAt:x0 y:y w:W];
     self.timeline = [[XRCTimelineView alloc] initWithFrame:CGRectMake(cardPad, cardPad, W - cardPad * 2, 34)];
+    self.timeline.onScrubBegin = ^BOOL { return xrc_gameplay_scrub_begin(); };
+    self.timeline.onScrubCancel = ^{ xrc_gameplay_scrub_cancel(); };
     self.timeline.onScrub = ^(uint32_t ms, BOOL finished) {
-        if (finished && !xrc_gameplay_request(XRC_OP_SEEK, ms))
+        if (finished && !xrc_gameplay_request(XRC_OP_SEEK, ms)) {
+            xrc_gameplay_scrub_cancel();
             [WHToast showMessage:@"当前场景不能跳转，请进入谱面后重试" duration:1.6 finishHandler:^{}];
+        }
     };
     [c1 addSubview:self.timeline];
     self.timeLabel = [[UILabel alloc] initWithFrame:CGRectMake(cardPad, cardPad + 42, 160, rowH)];
@@ -343,7 +348,7 @@ static NSString *const kNoteDev =
     self.speedSlider = [[UISlider alloc] initWithFrame:CGRectMake(70, cardPad + 42 + rowH + 2, W - 78, rowH)];
     self.speedSlider.minimumValue = 0.05f;
     self.speedSlider.maximumValue = 2.0f;
-    self.speedSlider.continuous = YES;   // 拖动实时生效；落盘在松手（speedCommit）
+    self.speedSlider.continuous = YES;   // Preview while dragging; apply once on release.
     [self.speedSlider addTarget:self action:@selector(speedChanged:) forControlEvents:UIControlEventValueChanged];
     [self.speedSlider addTarget:self action:@selector(speedCommit:)
                forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside |
@@ -897,16 +902,16 @@ static NSString *const kNoteDev =
     xrc_gameplay_request(XRC_OP_SEEK, target);
 }
 
-// 拖动中：实时改速率（不落盘）；松手：speedCommit 写回预设（消除拖动期全量写盘）
+// Preview only during drag; commit the rate and resynchronise once on release.
 - (void)speedChanged:(UISlider *)s {
     float snap = roundf(s.value / 0.05f) * 0.05f;
     if (snap < 0.05f) snap = 0.05f;
-    xrc_clock_set_rate((double)snap);
     self.speedLabel.text = [NSString stringWithFormat:@"%.2fx", snap];
 }
 - (void)speedCommit:(UISlider *)s {
     float snap = roundf(s.value / 0.05f) * 0.05f;
     if (snap < 0.05f) snap = 0.05f;
+    xrc_gameplay_set_rate((double)snap);
     xrc_config_set_current_speed(snap);
 }
 

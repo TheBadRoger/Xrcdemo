@@ -1480,6 +1480,7 @@ static void rpf_cmap_stage(uint64_t ng, const char *stage) {
 typedef struct {
     uint64_t scene, ng;
     uint32_t T, P;
+    bool explicit_seek;
 } rpf_reset_job_t;
 
 // 清 autoplay 的「每音符一次」闩（XRCHook 的 xrc_ap_latch_reset）。
@@ -1501,7 +1502,8 @@ static void rpf_reset_main(void *ctx) {
     rpf_reset_job_t *j = (rpf_reset_job_t *)ctx;
     if (!j) return;
     uint64_t ng = 0;
-    if (j->scene != xrc_gameplay_instance() ||
+    if ((!j->explicit_seek && xrc_gameplay_seek_active()) ||
+        j->scene != xrc_gameplay_instance() ||
         !rd(j->scene + RPF_NOTEGRP, &ng, 8) || ng != j->ng) {
         free(j);
         return;
@@ -1524,13 +1526,13 @@ static void rpf_reset_dispatch(uint64_t ng, uint32_t T, uint32_t P) {
     if (!j) return;
     j->scene = xrc_gameplay_instance();
     j->ng = ng; j->T = T; j->P = P;
+    j->explicit_seek=[NSThread isMainThread] && xrc_gameplay_seek_active();
     if ([NSThread isMainThread]) rpf_reset_main(j);
     else dispatch_async_f(dispatch_get_main_queue(), j, rpf_reset_main);
 }
 
 void xrc_replay_seek(uint64_t scene, uint32_t target, uint32_t previous) {
-    if (![NSThread isMainThread] || scene != xrc_gameplay_instance() ||
-        target >= previous) return;
+    if (![NSThread isMainThread] || scene != xrc_gameplay_instance()) return;
     uint64_t ng = 0;
     if (!rd(scene + RPF_NOTEGRP, &ng, 8) || !s_ishp(ng)) return;
     // Consume this rewind explicitly; the watcher must not issue a duplicate reset.

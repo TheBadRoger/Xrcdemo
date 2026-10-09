@@ -12,6 +12,7 @@ static inline bool xrc_seek_landed(uint32_t audio, uint32_t target,
                                    uint64_t elapsed_us, double rate) {
     // A playing channel advances while the asynchronous seek is being acknowledged.
     int64_t delta = (int64_t)audio - target;
+    if (rate==0) return delta>=-2 && delta<=2;
     double advance = (double)elapsed_us / 1000.0 * rate;
     return delta >= -150 && (double)delta <= advance + 150.0;
 }
@@ -52,4 +53,11 @@ static inline bool xrc_seek_sample_calibration(xrc_sync_samples_t *samples,int32
     }
     if ((int64_t)sorted[XRC_SYNC_SAMPLES-1]-sorted[0]>24) return false;
     *result=sorted[XRC_SYNC_SAMPLES/2]; return true;
+}
+
+// Only release a pause that we acquired on this exact scene and BGM group.
+static inline bool xrc_seek_can_resume(bool owned,uint64_t scene,uint64_t player,uint64_t group,
+                                       uint64_t current_scene,uint64_t current_player,uint64_t current_group) {
+    return owned && scene && player && group && scene==current_scene &&
+        player==current_player && group==current_group;
 }

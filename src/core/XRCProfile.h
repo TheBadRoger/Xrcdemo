@@ -18,6 +18,9 @@
 // ---------------- 谱面钟对象布局 ----------------
 // 出处: 逆向笔记 §4
 // （与 6.13 真机验证的布局逐字节一致；+45 标志/+40 base/+52 当前/-3000 前导）。
+// Verified native clock tick and FMOD getPaused entries; see seek stability notes.
+#define XRC_OFF_CLOCK_TICK (0x99A724ULL)
+#define XRC_OFF_FMOD_GET_PAUSED (0x10E2DACULL)
 #define XRC_CLK_FLAG45_OFF        45   // =1 时走分段钟分支（读 +32）
 #define XRC_CLK_BASE_OFF          40   // seek 平移目标（base_off）
 #define XRC_CLK_ALT_START_OFF     32   // flag45=1 分支的起始值

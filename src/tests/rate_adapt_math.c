@@ -53,14 +53,14 @@ int main(void) {
     assert(fabs(xrc_native_flow_candidate(10,700,.5,true,-20,20)-10.07)<1e-5);
     assert(xrc_native_flow_candidate(0,700,1e-10,false,-20,20)==-20);
     assert(xrc_native_flow_candidate(0,700,1e-10,true,-20,20)==20);
-    // Arc endpoints and mesh corners share the same immutable baseline.
+    // Endpoint distances scale; cross-section offsets retain native thickness.
     float geometry[24], changed[24];
     for (unsigned i=0;i<24;++i) geometry[i]=(float)(i+1);
     for (unsigned n=0;n<100;++n) {
         double factor=n%2 ? 0.5 : 2.0;
         xrc_arc_flow_geometry(changed,geometry,geometry,factor,false);
         for (unsigned i=0;i<24;++i)
-            assert(changed[i]==(i%3==2 ? geometry[i]*factor : geometry[i]));
+            assert(changed[i]==((i==2 || i==5) ? geometry[i]*factor : geometry[i]));
         // Native clipping changes all head coordinates, including mesh corners.
         for (unsigned i=0;i<24;++i) {
             unsigned record=i/3;
@@ -75,7 +75,7 @@ int main(void) {
                 unsigned record=i/3;
                 bool head=record==0 || (record>=2 && record<=4);
                 assert(changed[i]==(head ? -(float)(i+n+1) :
-                    i%3==2 ? geometry[i]*factor : geometry[i]));
+                    i==5 ? geometry[i]*factor : geometry[i]));
             }
         }
     }

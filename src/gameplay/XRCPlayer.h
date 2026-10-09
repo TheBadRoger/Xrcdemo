@@ -39,3 +39,6 @@ bool xrc_player_pause(bool paused);
 
 // 实时读取，不使用进度缓存；失败时不修改输出。
 bool xrc_player_read_position(void *player, uint32_t *out_ms);
+
+void *xrc_player_bgm_group(void *player);
+bool xrc_player_read_paused(void *player, bool *paused);

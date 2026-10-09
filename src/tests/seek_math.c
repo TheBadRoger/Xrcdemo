@@ -1,7 +1,28 @@
 #include "XRCSeekMath.h"
+#include "XRCClockMath.h"
 #include <assert.h>
 
 int main(void) {
+    assert(xrc_seek_can_resume(true,1,2,3,1,2,3));
+    assert(!xrc_seek_can_resume(false,1,2,3,1,2,3));
+    assert(!xrc_seek_can_resume(true,1,2,3,4,2,3));
+    assert(!xrc_seek_can_resume(true,1,2,3,1,4,3));
+    assert(!xrc_seek_can_resume(true,1,2,3,1,2,4));
+
+    uint64_t real=1000000, warped=real;
+    double rates[]={0.5,2.0,1.0,0.25,1.0};
+    for (unsigned i=0;i<1000;++i) {
+        double rate=rates[i%5];
+        uint64_t next=xrc_clock_warp_value(real+10000,real,warped,rate);
+        assert(next-warped==(uint64_t)(10000*rate));
+        assert(xrc_clock_warp_value(real+10000,real+10000,next,1.0)==next);
+        real+=10000; warped=next;
+    }
+
+    assert(xrc_seek_landed(10000,10000,900000,0));
+    assert(!xrc_seek_landed(10005,10000,900000,0));
+    assert(!xrc_seek_landed(9900,10000,900000,0));
+
     // Calibration survives repeated forward/backward seeks, including DSP offset.
     const int offsets[] = {-180, -40, 0, 25, 120};
     const unsigned targets[] = {0, 100, 1000, 45000, 62000};
