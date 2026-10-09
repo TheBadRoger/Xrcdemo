@@ -1231,9 +1231,11 @@ static NSString *const kNoteDev =
     }
 
     float rate = (float)xrc_clock_get_rate();
-    self.speedLabel.text = [NSString stringWithFormat:@"%.2fx", rate];
+    if (!self.speedSlider.tracking) {
+        self.speedLabel.text = [NSString stringWithFormat:@"%.2fx", rate];
+        if (fabs(self.speedSlider.value - rate) > 0.001f) self.speedSlider.value = rate;
+    }
     self.swSpeedAudio.on = xrc_audio_speed_enabled();
-    if (fabs(self.speedSlider.value - rate) > 0.001f) self.speedSlider.value = rate;
 }
 
 // 低频（1Hz）：开关镜像 / 状态行 / 判定门控 / 能力行
