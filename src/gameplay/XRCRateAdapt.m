@@ -17,6 +17,7 @@
 #include "XRCProfile.h"
 #include "XRCHook.h"
 #include "XRCConfig.h"
+#include "XRCAudio.h"
 #import "XRCLog.h"
 
 extern uint64_t xrc_image_base(void);
@@ -181,6 +182,15 @@ void xrc_rate_adapt_frame_begin(void *scene, void *ng) {
         s_original_offset = s_preference_offset(); s_extra = 0;
         s_bounds_ng = 0;
         xrc_arc_flow_reset();
+    }
+    s_original_offset=s_preference_offset();
+    int32_t audio_base=0;
+    if (s_read(clock+XRC_CLK_BASE_OFF,&audio_base,sizeof(audio_base))) {
+        int32_t adjustment=xrc_audio_take_alignment_adjustment();
+        if (adjustment) {
+            *(int32_t *)(clock+XRC_CLK_BASE_OFF)=xrc_adapt_add(audio_base,adjustment);
+            xrc_logi(XRCLC_BOOT,@"[audio-align] chart base adjustment=%dms",adjustment);
+        }
     }
     int32_t desired = xrc_adapt_offset_extra(s_original_offset, xrc_clock_get_rate(),
                                             xrc_rate_adapt_offset_enabled());

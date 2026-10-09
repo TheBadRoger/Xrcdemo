@@ -39,14 +39,23 @@ class RateAdaptTests(unittest.TestCase):
 
     def test_native_distance_replays_in_isolated_binary(self):
         inject.configure_profile('7.0.256')
-        hooks=[h for h in inject.BRK_HOOKS if h[0].startswith('native_flow_')]
+        hooks=[h for h in inject.BRK_HOOKS if h[0].startswith('native_flow_') or h[0]=='flow_ui']
         data=bytearray(0x146c220)
         struct.pack_into('<III',data,0,0xfeedfacf,0x100000c,0)
         for name,site,replay,expect in hooks: data[site-0x100000000:site-0x100000000+4]=bytes.fromhex(expect)
+        with self.assertRaisesRegex(RuntimeError,'flow contract missing'):
+            inject.validate_flow_contract(data)
         inject.patch_brk_hooks(data,{h[0] for h in hooks})
+        for off,original,_ in inject.FLOW_RUNTIME_PATCHES['7.0.256']:
+            data[off:off+4]=bytes.fromhex(original)
+        inject.patch_flow_runtime(data,True)
+        inject.validate_flow_contract(data)
         for name,site,replay,expect in hooks:
             self.assertEqual(data[site-0x100000000:site-0x100000000+4],inject.BRK_INSN)
             self.assertEqual(data[replay-0x100000000:replay-0x100000000+4],bytes.fromhex(expect))
+        data[hooks[-1][2]-0x100000000]=0xff
+        with self.assertRaisesRegex(RuntimeError,'flow contract missing'):
+            inject.validate_flow_contract(data)
 
     def test_old_flow_library_rejected_before_any_write(self):
         for version in ('7.0.255','7.0.256'):

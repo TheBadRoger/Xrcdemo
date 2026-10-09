@@ -803,6 +803,22 @@ FLOW_RUNTIME_PATCHES = {
 }
 
 
+def validate_flow_contract(data: bytes) -> None:
+    """Reject a matching-version host that lacks the plugin's flow hooks."""
+    base = fat_arm64_slice_offset(data)
+    for name, site, replay, expected in BRK_HOOKS:
+        if name != 'flow_ui' and not name.startswith('native_flow_'):
+            continue
+        off = base + site - 0x100000000
+        rf = base + replay - 0x100000000
+        jump = bytes.fromhex(expected) + struct.pack('<I', encode_b(replay + 4, site + 4))
+        if data[off:off + 4] != BRK_INSN or data[rf:rf + 8] != jump:
+            raise RuntimeError(f'Main/plugin flow contract missing: {name}; repair the main flow hooks before packaging')
+    for offset, _, replacement in FLOW_RUNTIME_PATCHES[ACTIVE_GAME_VERSION]:
+        if data[base + offset:base + offset + 4] != bytes.fromhex(replacement):
+            raise RuntimeError(f'Main/plugin flow consumer mismatch: {offset:#x}')
+
+
 def patch_flow_runtime(data: bytearray, enabled: bool, patches=None) -> list[str]:
     """Preserve native speed units at six consumer clamps, not just the popup.
 

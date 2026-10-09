@@ -24,6 +24,17 @@ int main(void) {
     assert(xrc_seek_output_delay(0.25, 96.0) == 24);
     assert(xrc_seek_output_delay(0.0, 96.0) == 0);
     assert(xrc_seek_output_delay(1.0, 0.0) == 0);
+    // A rate change retains the source position. Shift chart base by only the
+    // difference in delay, including restoring 1x and repeated rate changes.
+    int source=20000,chart=source-xrc_seek_output_delay(0.6,150);
+    double previousRate=0.6;
+    const double changes[]={1.5,0.75,1.0,2.0,0.6,1.0};
+    for (unsigned i=0;i<sizeof(changes)/sizeof(changes[0]);++i) {
+        int delta=xrc_seek_output_delay(changes[i],150)-xrc_seek_output_delay(previousRate,150);
+        chart-=delta;
+        assert(chart==source-xrc_seek_output_delay(changes[i],150));
+        previousRate=changes[i];
+    }
     const int calibration = 20;
     assert(xrc_seek_calibrated_offset(calibration, 96) == -76);
     assert(xrc_seek_calibrated_offset(calibration, 48) == -28);

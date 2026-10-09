@@ -191,6 +191,8 @@ static void s_seek_finish(bool success) {
         int32_t delay=xrc_seek_output_delay(xrc_audio_effective_rate(),xrc_audio_output_latency_ms());
         s_seek_offset=xrc_seek_runtime_offset(s_sync_offset,delay,xrc_rate_adapt_offset_extra(s_seek_ng));
         xrc_clock_shift_to(s_seek_ng,xrc_seek_chart_target(audio,s_seek_offset));
+        // This absolute alignment already includes the newly applied rate delay.
+        xrc_audio_alignment_acknowledged();
         xrc_logi(XRCLC_JUDGE,@"[seek-sync] #%llu final audio=%u chart=%d delta=%lld",
                  s_seek_sequence,audio,xrc_chart_clock_ms(s_seek_ng),
                  (int64_t)xrc_chart_clock_ms(s_seek_ng)-audio);

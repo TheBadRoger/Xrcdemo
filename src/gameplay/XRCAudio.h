@@ -24,3 +24,6 @@ double xrc_audio_output_latency_ms(void);
 // Acknowledges a plugin-owned seek without issuing another audio seek.
 void xrc_audio_seek_finished(void);
 double xrc_audio_effective_rate(void);
+// Consume only when a valid chart clock can apply the adjustment.
+int32_t xrc_audio_take_alignment_adjustment(void);
+void xrc_audio_alignment_acknowledged(void);

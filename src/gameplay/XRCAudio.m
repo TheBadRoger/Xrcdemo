@@ -82,6 +82,7 @@ static void *s_applied_group;
 static uint64_t s_owned_seek_until;
 static uint32_t s_last_pos_ms;     // 位置回退检测（seek/retry 后要重新补偿）
 static atomic_bool s_enabled = true;
+static atomic_int s_alignment_adjustment;
 
 void xrc_audio_speed_set_enabled(BOOL on) {
     bool prev = atomic_exchange(&s_enabled, (bool)on);
@@ -104,7 +105,10 @@ static void s_compensate(void *ch, double rate) {
     uint32_t pos = 0;
     if (p_ch_getpos(ch, &pos, 1 /*FMOD_TIMEUNIT_MS*/) != 0) return;   // 拿不到就放弃补偿
     uint32_t bump = (uint32_t)(rate * (double)s_dsp_lat_ms + 0.5);
-    if (bump && p_ch_setpos(ch,pos+bump,1)==0) xrc_stretch_reset();
+    if (bump && p_ch_setpos(ch,pos+bump,1)==0) {
+        xrc_stretch_reset();
+        atomic_store(&s_alignment_adjustment,0);
+    }
 }
 
 void xrc_audio_speed_apply(double rate) {
@@ -115,6 +119,7 @@ void xrc_audio_speed_apply(double rate) {
     rate=fmax(0.05,fmin(4.0,rate));
     void *group=s_bgm_group();
     if (!group) return;
+    if (group!=s_applied_group) atomic_store(&s_alignment_adjustment,0);
     if (s_dsp_group && s_dsp_group!=group) s_release_dsp();
     bool attached=false;
     if (!s_dsp && rate!=1.0) {
@@ -136,6 +141,12 @@ void xrc_audio_speed_apply(double rate) {
         xrc_stretch_set_rate(s_applied_rate);
         xrc_logw(XRCLC_BOOT,@"[audio] setPitch failed rc=%d",rc);
         return;
+    }
+    if (!attached && s_dsp && s_applied_group==group) {
+        // Keep the source continuous; move the chart by the change in DSP delay.
+        int32_t delta=xrc_seek_output_delay(rate,s_dsp_lat_ms)-
+                      xrc_seek_output_delay(s_applied_rate,s_dsp_lat_ms);
+        atomic_fetch_add(&s_alignment_adjustment,delta);
     }
     s_applied_rate=rate; s_applied_group=group;
     if (attached) s_compensate(s_channel0(),rate);
@@ -176,6 +187,8 @@ double xrc_audio_output_latency_ms(void) {
 }
 
 double xrc_audio_effective_rate(void) { return s_applied_rate; }
+int32_t xrc_audio_take_alignment_adjustment(void) { return atomic_exchange(&s_alignment_adjustment,0); }
+void xrc_audio_alignment_acknowledged(void) { atomic_store(&s_alignment_adjustment,0); }
 void xrc_audio_seek_finished(void) {
     xrc_stretch_reset();
     s_owned_seek_until=xrc_real_now_us()+2000000ULL;

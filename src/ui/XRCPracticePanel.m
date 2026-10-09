@@ -1266,6 +1266,9 @@ static NSString *const kNoteDev =
     self.swRateOffset.enabled = xrc_cap_gp();
     self.swRateFlow.on = xrc_rate_adapt_flow_enabled();
     self.swRateFlow.enabled = xrc_cap_gp() && xrc_rate_adapt_flow_available();
+    self.swRateFlow.note = xrc_rate_adapt_flow_available() ?
+        @"内部流速乘倍率倒数，设置显示值不变；游玩中可切换。" :
+        @"当前主程序缺少完整流速钩子或版本校验失败，请更新配套主程序。";
     self.flowField.enabled = self.flowApplyBtn.enabled = self.flowNativeBtn.enabled = xrc_cap_gp() && xrc_rate_adapt_flow_available();
     if (!self.flowField.isFirstResponder) {
         double flow = xrc_rate_adapt_native_flow();
