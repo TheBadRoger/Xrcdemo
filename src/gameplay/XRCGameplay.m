@@ -608,15 +608,16 @@ void xrc_gameplay_update(void *self, uint64_t a2, uint64_t a3, uint64_t a4, uint
             xrc_rate_adapt_frame_begin(self, note_group);
             s_gp_retime_logic_clock(note_group);
             s_rate_probe_tick(note_group);      // 音画倍率自测（1 Hz，只读）
-            int32_t pos = xrc_chart_clock_ms(note_group);
             // 冻结/收敛窗内钟不是真实播放时间（钉住/落位中）——循环 tick 抑制，
             // 防事务中间态二次触发回跳（收口缺守卫会把钟弹回旧位 → 循环二跳）。
-            if (pos > 0 && !atomic_load(&s_frz_state)) xrc_loop_tick(self, xrc_player_position_ms());
+            if (xrc_loop_get_enabled() && !atomic_load(&s_frz_state)) xrc_loop_tick(self, xrc_player_position_ms());
         }
         s_exec_pending(self);   // deferred 操作（seek/循环回位）在活场景循环内执行
 
+        // Restart the watcher baseline when a disabled loop is enabled again.
+        if (!xrc_loop_get_enabled()) atomic_store(&s_cap_valid,false);
         // retry 监视（音频回跳）；循环卡死恢复。
-        if (note_group) {
+        if (note_group && xrc_loop_get_enabled()) {
             s_retry_watch_tick();
             // 循环卡死恢复：pos 停滞超 1.5s 且位于 [A,B) 内 → 强制回 A
             int32_t pos = xrc_chart_clock_ms(note_group);
@@ -667,8 +668,6 @@ void xrc_gameplay_update(void *self, uint64_t a2, uint64_t a3, uint64_t a4, uint
             return;
         }
     }
-    // 音乐变速：低频去重 tick —— 速度变了/换歌了/组刚建才动作。
-    // 放这里是因为 gp.update 是唯一"进对局后每帧都在跑"的点，面板不开时也有效。
     if (s_orig_gp_update) {
         s_orig_gp_update(self, a2, a3, a4, a5);
         if (self) atomic_fetch_add(&s_native_update_sequence,1);

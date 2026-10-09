@@ -1389,18 +1389,6 @@ static void rpf_reset(uint64_t ng, uint32_t T, uint32_t P) {
 // ⚠ 判据不能用"是不是 s_isptr"——s_isptr 的区间太宽：根曾被写成 0x200000000
 //   （= 2<<32）照样通过，遍历会一头扎进**只读代码段**。三项硬判据：8 字节对齐 +
 //   __is_black_ ∈ {0,1} + __parent_ 要么 0 要么是合法指针（0x200000000 会在 parent 上被挡下）。
-static bool rpf_node_ok(uint64_t n) {
-    if (!s_isptr(n)) return false;
-    if (n & 7) return false;
-    uint8_t blk = 0;
-    if (!rd(n + 0x18, &blk, 1)) return false;
-    if (blk > 1) return false;
-    uint64_t par = 0;
-    if (!rd(n + 0x10, &par, 8)) return false;
-    if (par && !s_isptr(par)) return false;
-    return true;
-}
-
 static int rpf_cmap_walk(uint64_t chart, const char *stage, int verbose) {
     uint64_t root = 0;
     if (!rd(chart + 0x88, &root, 8)) return -1;
@@ -1422,7 +1410,14 @@ static int rpf_cmap_walk(uint64_t chart, const char *stage, int verbose) {
         sp--;
         seen++;
         if (sp > maxd) maxd = sp;
-        if (!rpf_node_ok(n)) {
+        uint8_t raw[0x28];
+        uint64_t parent=0;
+        bool valid=s_isptr(n) && !(n & 7) && rd(n,raw,sizeof(raw));
+        if (valid) {
+            memcpy(&parent,raw+0x10,8);
+            valid=raw[0x18]<=1 && (!parent || s_isptr(parent));
+        }
+        if (!valid) {
             xrc_logd(XRCLC_JUDGE, @"[rpf] §CMAP %s chart=%llx **节点 %llx 不是合法 map 节点**"
                    "（持有它的槽 %llx，第 %d 步）→ 清零该槽自愈",
                    stage, chart, n, slot, seen);
@@ -1433,22 +1428,9 @@ static int rpf_cmap_walk(uint64_t chart, const char *stage, int verbose) {
             }
             continue;
         }
-        uint64_t l = 0, r = 0, p = 0, k = 0;
-        {   /* 一次 0x28 字节读拿到 left/right/parent/key32：看门狗每秒都跑，
-               把每次遍历的 syscall 从 4N 降到 N（这台机器上 ~1300 个节点）。 */
-            uint8_t raw[0x28];
-            if (!rd(n, raw, sizeof(raw))) {
-                xrc_logd(XRCLC_JUDGE, @"[rpf] §CMAP %s chart=%llx 节点 %llx 读不出来（第 %d 步）",
-                       stage, chart, n, seen);
-                continue;
-            }
-            memcpy(&l, raw, 8); memcpy(&r, raw + 8, 8);
-            memcpy(&p, raw + 0x10, 8); memcpy(&k, raw + 0x20, 8);
-        }
-        (void)p; (void)k;
-        /* 子节点连「持有它的槽地址」一起入栈 —— 合法性判据统一在弹出时由
-           rpf_node_ok 做（对齐 + is_black∈{0,1} + parent 合法）。坏的那个槽要么是
-           父节点的 +0（left）要么是 +8（right），一眼可辨。 */
+        uint64_t l=0,r=0;
+        memcpy(&l,raw,8); memcpy(&r,raw+8,8);
+        // The same validated snapshot supplies links; one Mach read per node.
         if (l && sp < 190) { stk[sp].node = l; stk[sp].slot = n;     sp++; }
         if (r && sp < 190) { stk[sp].node = r; stk[sp].slot = n + 8; sp++; }
     }
@@ -1459,7 +1441,9 @@ static int rpf_cmap_walk(uint64_t chart, const char *stage, int verbose) {
 }
 
 static uint64_t s_last_chart;
+#if XRC_DEBUG_BUILD
 static int      s_cmap_tick;
+#endif
 static uint64_t s_last_c80, s_last_c88, s_last_c90, s_last_c98;
 
 // 重置各阶段调用（chart 从 ng+0x28 现取）
@@ -1579,8 +1563,10 @@ static void rpf_fast_tick(void) {
            再对着同一刻本模块自己的动作（清分 / 走查 / 复活 / 触摸态）一眼定人。 */
         uint64_t c80 = 0, c88 = 0, c90 = 0, c98 = 0;
         if (chart) {
-            rd(chart + 0x80, &c80, 8); rd(chart + 0x88, &c88, 8);
-            rd(chart + 0x90, &c90, 8); rd(chart + 0x98, &c98, 8);
+            uint64_t header[4]={0};
+            if (rd(chart+0x80,header,sizeof(header))) {
+                c80=header[0]; c88=header[1]; c90=header[2]; c98=header[3];
+            }
         }
         if (chart != s_last_chart || c80 != s_last_c80 || c88 != s_last_c88 ||
             c90 != s_last_c90 || c98 != s_last_c98) {
@@ -1590,11 +1576,13 @@ static void rpf_fast_tick(void) {
                    s_last_c90, c90, s_last_c98, c98);
             if (chart != s_last_chart) {
                 s_last_chart = chart;
-                if (chart) rpf_cmap_walk(chart, "换表", 1);
+
             }
+            if (chart) rpf_cmap_walk(chart,"表头变化",0);
             s_last_c80 = c80; s_last_c88 = c88; s_last_c90 = c90; s_last_c98 = c98;
         }
-        if (chart) {
+#if XRC_DEBUG_BUILD
+        if (chart && xrc_log_level()>=XRCLL_DEBUG && (xrc_log_cats() & XRCLC_JUDGE)) {
             if ((s_cmap_tick % 20) == 0) {
                 uint64_t c90 = 0;
                 rd(chart + 0x90, &c90, 8);
@@ -1603,6 +1591,7 @@ static void rpf_fast_tick(void) {
             }
             s_cmap_tick++;
         }
+#endif
     }
 
     if (ng) {
