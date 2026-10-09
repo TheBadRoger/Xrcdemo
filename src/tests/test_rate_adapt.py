@@ -58,12 +58,12 @@ class RateAdaptTests(unittest.TestCase):
                 main.write_bytes(struct.pack('<8I',0xfeedfacf,0x100000c,0,2,0,0,0,0))
                 (main.parent/'Info.plist').write_bytes(plistlib.dumps({'CFBundleShortVersionString':version}))
                 lib=main.parent/'libxrcdemo.dylib'
-                lib.write_bytes(b'xrc-profile:7.0.256 practice-timing v1 practice-adapt v1 practice-live-flow v1 autoplay-eve v1 chain-guard v1')
+                lib.write_bytes(b'xrc-profile:7.0.256 practice-timing v1 practice-adapt v1 practice-live-flow v1 practice-value-flow v1 autoplay-eve v1 chain-guard v1')
                 before=main.read_bytes(); output=io.StringIO()
                 with mock.patch.object(inject,'MAIN',str(main)),mock.patch.object(inject.sys,'argv',['inject.py','--brk','--features','rate_flow']),mock.patch.object(inject,'find_dylibs',return_value=[str(lib)]),mock.patch.object(inject.shutil,'copy2') as copy,contextlib.redirect_stdout(output):
                     with self.assertRaises(SystemExit) as error: inject.main()
                     self.assertEqual(error.exception.code,3)
-                    self.assertIn('practice-value-flow v1',output.getvalue())
+                    self.assertIn('practice-shared-flow v1',output.getvalue())
                     copy.assert_not_called()
                 self.assertEqual(main.read_bytes(),before)
 
