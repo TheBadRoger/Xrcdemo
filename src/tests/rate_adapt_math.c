@@ -32,10 +32,16 @@ int main(void) {
     assert(!xrc_live_flow_units(NAN,&units));
     assert(!xrc_live_flow_units(0,&units));
     assert(!xrc_live_flow_units(-1,&units));
-    for (int native=1;native<=65;++native) {
-        assert(xrc_flow_write_value(100,native)==100);
-        assert(xrc_flow_write_value(0,native)==native);
+    // Both UIs write actual units; rebasing must preserve that exact value.
+    for (unsigned i=0;i<sizeof(rates)/sizeof(rates[0]);++i) {
+        for (int value=1;value<=200;++value) {
+            double base=xrc_flow_base_for_value(value,rates[i],true);
+            assert(xrc_flow_value(base,rates[i],true)==value);
+            assert(xrc_flow_base_for_value(value,rates[i],false)==value);
+        }
     }
+    assert(xrc_flow_value(xrc_flow_base_for_value(1,4,true),4,true)==1);
+    assert(xrc_flow_value(xrc_flow_base_for_value(INT_MAX,0.05,true),0.05,true)==INT_MAX);
     assert(xrc_flow_value(50,0.5,true)==25);
     assert(xrc_flow_value(50,2,true)==100);
     assert(xrc_flow_value(50,0.75,true)==38);

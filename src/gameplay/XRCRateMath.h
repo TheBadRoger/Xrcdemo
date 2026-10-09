@@ -29,13 +29,14 @@ static inline bool xrc_live_flow_units(double speed, uint64_t *units) {
     return *units >= 1 && *units <= (uint64_t)INT32_MAX;
 }
 // Round the actual native highspeed_int value; never scale render intermediates.
-static inline int32_t xrc_flow_value(int32_t base,double rate,bool adapt) {
-    if (base<=0) return 0;
+static inline int32_t xrc_flow_value(double base,double rate,bool adapt) {
+    if (!isfinite(base) || base<=0) return 0;
     double result=adapt ? base*xrc_adapt_rate(rate) : base;
     if (result>=INT_MAX) return INT_MAX;
     return result<1 ? 1 : (int32_t)floor(result+0.5);
 }
 
-static inline int32_t xrc_flow_write_value(int32_t plugin,int32_t native) {
-    return plugin>0 ? plugin : native;
+// A value edited in either UI is the actual current value, including adaptation.
+static inline double xrc_flow_base_for_value(int32_t value,double rate,bool adapt) {
+    return adapt ? value/xrc_adapt_rate(rate) : (double)value;
 }

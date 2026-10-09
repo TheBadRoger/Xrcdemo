@@ -20,7 +20,11 @@
 #import "XRCLog.h"
 extern uint64_t xrc_image_base(void);
 static _Atomic(bool) s_offset_enabled, s_flow_enabled;
-static _Atomic(int32_t) s_manual_flow, s_auto_base, s_desired_units;
+static _Atomic(int32_t) s_shared_units;
+static _Atomic(double) s_auto_base;
+static _Atomic(bool) s_flow_dirty;
+static _Atomic(bool) s_internal_write;
+static _Atomic(uint64_t) s_flow_settings;
 static uint64_t s_scene,s_ng,s_clock,s_song;
 static int32_t s_original_offset,s_extra;
 static bool s_setter_valid;
@@ -41,14 +45,30 @@ static int32_t s_preference_offset(void) {
     uint64_t p=s_settings();int32_t f[3]={0};
     return p && s_read(p,f,sizeof(f)) ? f[f[0] ? 2 : 1] : 0;
 }
-static void s_save_base(int32_t base) {
-    NSMutableDictionary *p=xrc_config_dict();p[@"nativeFlowBase"]=@(base);xrc_config_write_dict(p);
+// Both interfaces commit to Preferences+12; the base is only an adaptive reference.
+static void s_accept_flow(int32_t value) {
+    if (value<=0) return;
+    atomic_store(&s_shared_units,value);
+    atomic_store(&s_auto_base,xrc_flow_base_for_value(value,xrc_clock_get_rate(),xrc_rate_adapt_flow_enabled()));
+    atomic_store(&s_flow_dirty,true);
 }
-static void s_update_desired(void) {
-    int32_t base=atomic_load(&s_manual_flow);
-    bool adapt=atomic_load(&s_flow_enabled);
-    if (!base && adapt) base=atomic_load(&s_auto_base);
-    atomic_store(&s_desired_units,xrc_flow_value(base,xrc_clock_get_rate(),adapt));
+static bool s_write_flow(uint64_t settings,int32_t value) {
+    if (!settings || !s_setter_valid || value<=0) return false;
+    atomic_store(&s_flow_settings,settings);
+    atomic_store(&s_internal_write,true);
+    s_set_flow((void *)settings,value);
+    atomic_store(&s_internal_write,false);
+    int32_t actual=0;
+    if (!s_read(settings+12,&actual,4) || actual!=value) return false;
+    atomic_store(&s_shared_units,actual);atomic_store(&s_flow_dirty,true);
+    return true;
+}
+static void s_save_flow(void) {
+    if (!atomic_exchange(&s_flow_dirty,false)) return;
+    NSMutableDictionary *p=xrc_config_dict();
+    p[@"nativeFlowBase"]=@(atomic_load(&s_auto_base));
+    p[@"nativeFlowValue"]=@(atomic_load(&s_shared_units));
+    xrc_config_write_dict(p);
 }
 void xrc_rate_adapt_install(void) {
     uint64_t f=xrc_image_base()+XRC_OFF_FLOW_SETTER;
@@ -61,66 +81,61 @@ void xrc_rate_adapt_install(void) {
 #endif
         s_set_flow=(void (*)(void *,int32_t))p;
     }
-    int64_t saved=[xrc_config_dict()[@"nativeFlowBase"] longLongValue];
-    if (saved>0 && saved<=INT_MAX) atomic_store(&s_auto_base,(int32_t)saved);
-    xrc_logi(XRCLC_BOOT,@"practice-adapt v1; practice-live-flow v1; practice-value-flow v1: native highspeed_int only setter=%d",s_setter_valid);
+    int32_t current=s_native_units();
+    NSDictionary *saved=xrc_config_dict();
+    double base=[saved[@"nativeFlowBase"] doubleValue];
+    if (current>0) {
+        atomic_store(&s_shared_units,current);
+        atomic_store(&s_auto_base,isfinite(base) && base>0 && [saved[@"nativeFlowValue"] intValue]==current ? base : current);
+    }
+    xrc_logi(XRCLC_BOOT,@"practice-adapt v1; practice-live-flow v1; practice-value-flow v1; practice-shared-flow v1: native highspeed_int shared setter=%d",s_setter_valid);
     xrc_rate_adapt_native_tick();
 }
 void xrc_rate_adapt_set_offset(bool enabled) { atomic_store(&s_offset_enabled,enabled); }
 void xrc_rate_adapt_set_flow(bool enabled) {
     bool previous=atomic_exchange(&s_flow_enabled,enabled);
-    if (previous && !enabled && [NSThread isMainThread]) {
-        int32_t base=atomic_load(&s_manual_flow);
-        if (!base) base=atomic_load(&s_auto_base);
-        atomic_store(&s_desired_units,base);
-        uint64_t p=s_settings();
-        if (base && p && s_setter_valid) s_set_flow((void *)p,base);
-        atomic_store(&s_auto_base,0);s_save_base(0);
+    if (previous==enabled || !s_setter_valid || ![NSThread isMainThread]) return;
+    int32_t current=s_native_units();
+    // Enabling starts from the current shared value; disabling leaves that value intact.
+    if (current>0) {
+        atomic_store(&s_shared_units,current);atomic_store(&s_auto_base,(double)current);
+        atomic_store(&s_flow_dirty,true);
     }
-    s_update_desired();
-    if (s_setter_valid && [NSThread isMainThread]) xrc_rate_adapt_native_tick();
+    xrc_rate_adapt_native_tick();
 }
 bool xrc_rate_adapt_offset_enabled(void) { return atomic_load(&s_offset_enabled); }
 bool xrc_rate_adapt_flow_enabled(void) { return atomic_load(&s_flow_enabled); }
 bool xrc_rate_adapt_flow_available(void) { return s_setter_valid && xrc_feature_complete("rate_flow"); }
 void xrc_rate_adapt_native_tick(void) {
     if (![NSThread isMainThread] || !xrc_rate_adapt_flow_available()) return;
-    if (atomic_load(&s_flow_enabled) && !atomic_load(&s_auto_base)) {
-        int32_t base=atomic_load(&s_manual_flow);
-        if (!base) base=s_native_units();
-        if (base) { atomic_store(&s_auto_base,base);s_save_base(base); }
+    uint64_t settings=s_settings();int32_t current=0;
+    if (!settings || !s_read(settings+12,&current,4) || current<=0) return;
+    atomic_store(&s_flow_settings,settings);
+    // Also adopt game writes which bypassed its setter, rather than overwrite them.
+    if (current!=atomic_load(&s_shared_units)) s_accept_flow(current);
+    if (xrc_rate_adapt_flow_enabled()) {
+        double base=atomic_load(&s_auto_base);
+        if (base<=0) { base=current;atomic_store(&s_auto_base,base); }
+        int32_t desired=xrc_flow_value(base,xrc_clock_get_rate(),true);
+        if (desired!=current && !s_write_flow(settings,desired))
+            xrc_logw(XRCLC_BOOT,@"[flow-native] shared value write failed desired=%d",desired);
     }
-    s_update_desired();
-    int32_t desired=atomic_load(&s_desired_units);
-    if (!desired) return;
-    uint64_t p=s_settings();int32_t current=0;
-    if (!p || !s_read(p+12,&current,4) || current==desired) return;
-    s_set_flow((void *)p,desired);
-    if (!s_read(p+12,&current,4) || current!=desired)
-        xrc_logw(XRCLC_BOOT,@"[flow-native] value write mismatch desired=%d actual=%d",desired,current);
+    s_save_flow();
 }
-// This site is the actual Preferences setter's STR W1,[X0,#12], not a draw result.
+// Observe the actual setter; never substitute the game's requested W1 value.
 void xrc_rate_adapt_preference_write(void *context) {
-    ucontext_t *uc=context;if (!uc || !uc->uc_mcontext) return;
-    int32_t desired=atomic_load(&s_desired_units);
-    uc->uc_mcontext->__ss.__x[1]=(uint32_t)xrc_flow_write_value(desired,(int32_t)uc->uc_mcontext->__ss.__x[1]);
+    ucontext_t *uc=context;if (!uc || !uc->uc_mcontext || atomic_load(&s_internal_write)) return;
+    uint64_t settings=atomic_load(&s_flow_settings);
+    if (settings && uc->uc_mcontext->__ss.__x[0]!=settings) return;
+    s_accept_flow((int32_t)uc->uc_mcontext->__ss.__x[1]);
 }
-bool xrc_rate_adapt_set_manual_flow(double speed) {
+bool xrc_rate_adapt_set_native_flow(double speed) {
     uint64_t units=0;
-    if (speed!=0 && !xrc_live_flow_units(speed,&units)) return false;
-    atomic_store(&s_manual_flow,(int32_t)units);s_update_desired();
-    if (s_setter_valid && [NSThread isMainThread]) {
-        xrc_rate_adapt_native_tick();
-        return !units || s_native_units()==atomic_load(&s_desired_units);
-    }
-    return true;
+    if (!xrc_live_flow_units(speed,&units) || ![NSThread isMainThread]) return false;
+    if (!s_write_flow(s_settings(),(int32_t)units)) return false;
+    s_accept_flow((int32_t)units);s_save_flow();return true;
 }
-double xrc_rate_adapt_manual_flow(void) { return atomic_load(&s_manual_flow)/10.0; }
-double xrc_rate_adapt_base_flow(void) {
-    int32_t base=atomic_load(&s_manual_flow);
-    if (!base && atomic_load(&s_flow_enabled)) base=atomic_load(&s_auto_base);
-    return (base ? base : s_native_units())/10.0;
-}
+
 double xrc_rate_adapt_native_flow(void) { return s_native_units()/10.0; }
 int32_t xrc_rate_adapt_offset_extra(void *ng) { return (uint64_t)ng==s_ng ? s_extra : 0; }
 void xrc_rate_adapt_frame_begin(void *scene,void *ng) {
@@ -134,7 +149,7 @@ void xrc_rate_adapt_frame_begin(void *scene,void *ng) {
         xrc_rate_adapt_native_tick();
     }
     // The stored chart speed is the same native value (not a distance/geometry factor).
-    int32_t desired=atomic_load(&s_desired_units);
+    int32_t desired=atomic_load(&s_shared_units);
     uint64_t chart=*(uint64_t *)((char *)ng+40);
     if (desired>0 && chart) {
         float current=*(float *)(chart+240), speed=desired/10.0f;

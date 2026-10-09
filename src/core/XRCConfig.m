@@ -53,8 +53,7 @@ static void s_ensure_defaults(NSMutableDictionary *p) {
     if (!p[@"judgeTimeLock"]) p[@"judgeTimeLock"] = @NO;
     if (!p[@"rateAdaptOffset"]) p[@"rateAdaptOffset"] = @NO;
     if (!p[@"rateAdaptFlow"]) p[@"rateAdaptFlow"] = @NO;
-    uint64_t flow_units;
-    if (!xrc_live_flow_units([p[@"manualNoteFlow"] doubleValue], &flow_units)) p[@"manualNoteFlow"] = @0;
+    [p removeObjectForKey:@"manualNoteFlow"]; // Native Preferences is the sole flow setting.
     if (!p[@"konzetsuId"]) p[@"konzetsuId"] = @1;
     if (!p[@"konzetsuEnabled"]) p[@"konzetsuEnabled"] = @NO;
     if (!p[@"konzetsuChallenge"]) p[@"konzetsuChallenge"] = @NO;
@@ -139,7 +138,6 @@ void xrc_config_load(xrc_config_t *out) {
     out->judge_time_lock = [prefs[@"judgeTimeLock"] boolValue];
     out->rate_adapt_offset = [prefs[@"rateAdaptOffset"] boolValue];
     out->rate_adapt_flow = [prefs[@"rateAdaptFlow"] boolValue];
-    out->manual_note_flow = [prefs[@"manualNoteFlow"] doubleValue];
     out->konzetsu_id = [prefs[@"konzetsuId"] intValue];
     if (out->konzetsu_id != 1 && out->konzetsu_id != 2 && out->konzetsu_id != 3
         && out->konzetsu_id != 4 && out->konzetsu_id != 6) out->konzetsu_id = 1;
@@ -175,7 +173,6 @@ void xrc_config_save(const xrc_config_t *c) {
     p[@"judgeTimeLock"] = @(c->judge_time_lock);
     p[@"rateAdaptOffset"] = @(c->rate_adapt_offset);
     p[@"rateAdaptFlow"] = @(c->rate_adapt_flow);
-    p[@"manualNoteFlow"] = @(c->manual_note_flow);
     p[@"konzetsuId"] = @(c->konzetsu_id);
     p[@"konzetsuEnabled"] = @(c->konzetsu_enabled);
     p[@"konzetsuChallenge"] = @(c->konzetsu_challenge);
