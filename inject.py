@@ -177,7 +177,7 @@ FEATURES = [
      "7.0.256 离线挑战练习：下隐/变速/上下反/点血条/综合，下次开局生效"),
     ("judge_time_lock", ["timing_input", "timing_arc_input", "ap_note_win", "ap_arctap_win"], True, "stable",
      "锁定现实毫秒判定窗口，同步输入预筛选与音符过期窗口"),
-    ("rate_flow", ["flow_ui", "flow_setter"], True, "experimental", "插件与游戏设置共享原生流速数值；共同编辑 1.0 倍速基准"),
+    ("rate_flow", ["flow_ui", "flow_setter"], True, "experimental", "开启时原生基准÷倍率并锁定；关闭恢复原值"),
     ("unlock_own",     ["unlock_l1", "unlock_l2", "unlock_l3"],                    False, "redundant",
      "拥有链三层：归属由 cb 三清单 + 服务器授予决定；本组覆盖服务器未授予而本地已有内容的场景"),
     ("chain_guard",    ["chain_prog"],                                             True,  "required",
@@ -1053,8 +1053,8 @@ def main():
             sys.exit(3)
 
     if do_brk and "rate_flow" in g_selected_features:
-        if b"practice-shared-flow v2" not in plugin_bytes:
-            print("[!] flow setter requires a rebuilt dylib with 'practice-shared-flow v2'")
+        if b"practice-flow-lock v1" not in plugin_bytes:
+            print("[!] flow setter requires a rebuilt dylib with 'practice-flow-lock v1'")
             sys.exit(3)
 
     # 配对校验（两条）：

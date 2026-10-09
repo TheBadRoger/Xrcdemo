@@ -8,7 +8,7 @@ void xrc_rate_adapt_set_flow(bool enabled);
 bool xrc_rate_adapt_offset_enabled(void);
 bool xrc_rate_adapt_flow_enabled(void);
 bool xrc_rate_adapt_flow_available(void);
-bool xrc_rate_adapt_set_native_flow(double speed); // writes the shared native 1x baseline
+bool xrc_rate_adapt_set_native_flow(double speed); // writes the native setting only while unlocked
 double xrc_rate_adapt_native_flow(void);
 void xrc_rate_adapt_native_tick(void);
 void xrc_rate_adapt_frame_begin(void *scene, void *note_group);

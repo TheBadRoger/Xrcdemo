@@ -20,7 +20,8 @@
 #import "XRCLog.h"
 extern uint64_t xrc_image_base(void);
 static _Atomic(bool) s_offset_enabled, s_flow_enabled;
-static _Atomic(int32_t) s_shared_units;
+static _Atomic(int32_t) s_flow_original,s_flow_locked;
+static bool s_loaded_lock;
 static _Atomic(uint64_t) s_flow_settings;
 static uint64_t s_scene,s_ng,s_clock,s_song;
 static int32_t s_original_offset,s_extra;
@@ -42,17 +43,13 @@ static int32_t s_preference_offset(void) {
     uint64_t p=s_settings();int32_t f[3]={0};
     return p && s_read(p,f,sizeof(f)) ? f[f[0] ? 2 : 1] : 0;
 }
-// The shared Preferences value always represents the 1x baseline.
-static void s_accept_flow(int32_t value) {
-    if (value>0) atomic_store(&s_shared_units,value);
-}
 static bool s_write_flow(uint64_t settings,int32_t value) {
     if (!settings || !s_setter_valid || value<=0) return false;
     atomic_store(&s_flow_settings,settings);
     s_set_flow((void *)settings,value);
     int32_t actual=0;
     if (!s_read(settings+12,&actual,4) || actual!=value) return false;
-    s_accept_flow(actual);return true;
+    return true;
 }
 // Recover the old 1x reference once before discarding the independent override keys.
 static bool s_migrated_flow;
@@ -75,6 +72,16 @@ static void s_migrate_flow(uint64_t settings,int32_t current) {
     }
     s_migrated_flow=true;
 }
+static void s_save_lock(void) {
+    NSMutableDictionary *p=xrc_config_dict();
+    int32_t original=atomic_load(&s_flow_original), locked=atomic_load(&s_flow_locked);
+    if (original>0 && locked>0) {
+        p[@"flowLockOriginal"]=@(original);p[@"flowLockValue"]=@(locked);
+    } else {
+        [p removeObjectForKey:@"flowLockOriginal"];[p removeObjectForKey:@"flowLockValue"];
+    }
+    xrc_config_write_dict(p);
+}
 void xrc_rate_adapt_install(void) {
     uint64_t f=xrc_image_base()+XRC_OFF_FLOW_SETTER;
     const unsigned char expected[]={0xf4,0x4f,0xbe,0xa9};unsigned char actual[4];
@@ -86,8 +93,7 @@ void xrc_rate_adapt_install(void) {
 #endif
         s_set_flow=(void (*)(void *,int32_t))p;
     }
-    s_accept_flow(s_native_units());
-    xrc_logi(XRCLC_BOOT,@"practice-adapt v1; practice-live-flow v1; practice-value-flow v1; practice-shared-flow v2: native highspeed_int shared setter=%d",s_setter_valid);
+    xrc_logi(XRCLC_BOOT,@"practice-adapt v1; practice-live-flow v1; practice-value-flow v1; practice-flow-lock v1: native highspeed_int shared setter=%d",s_setter_valid);
     xrc_rate_adapt_native_tick();
 }
 void xrc_rate_adapt_set_offset(bool enabled) { atomic_store(&s_offset_enabled,enabled); }
@@ -104,17 +110,43 @@ void xrc_rate_adapt_native_tick(void) {
     if (!settings || !s_read(settings+12,&current,4) || current<=0) return;
     atomic_store(&s_flow_settings,settings);
     s_migrate_flow(settings,current);
-    // Preferences is authoritative; adaptive speed never changes its displayed baseline.
-    if (s_read(settings+12,&current,4)) s_accept_flow(current);
+    if (!s_loaded_lock) {
+        NSDictionary *p=xrc_config_dict();
+        int64_t original=[p[@"flowLockOriginal"] longLongValue], locked=[p[@"flowLockValue"] longLongValue];
+        if (original>0 && original<=INT_MAX && locked>0 && locked<=INT_MAX) {
+            atomic_store(&s_flow_original,(int32_t)original);atomic_store(&s_flow_locked,(int32_t)locked);
+        }
+        s_loaded_lock=true;
+    }
+    if (!s_read(settings+12,&current,4) || current<=0) return;
+    int32_t original=atomic_load(&s_flow_original);
+    if (xrc_rate_adapt_flow_enabled()) {
+        if (!original) {
+            atomic_store(&s_flow_original,current);
+            atomic_store(&s_flow_locked,xrc_flow_value(current,xrc_clock_get_rate(),true));
+            s_save_lock(); // Save recovery before the native setting is changed.
+        }
+        int32_t locked=atomic_load(&s_flow_locked);
+        if (current!=locked && !s_write_flow(settings,locked))
+            xrc_logw(XRCLC_BOOT,@"[flow-native] locked value write failed: %d",locked);
+    } else if (original) {
+        if (current!=original && !s_write_flow(settings,original)) {
+            xrc_logw(XRCLC_BOOT,@"[flow-native] restore original value failed: %d",original);return;
+        }
+        atomic_store(&s_flow_original,0);atomic_store(&s_flow_locked,0);s_save_lock();
+    }
 }
-// Observe the actual setter; never substitute the game's requested W1 value.
+// While enabled, every write to the native setting receives the captured locked value.
 void xrc_rate_adapt_preference_write(void *context) {
     ucontext_t *uc=context;if (!uc || !uc->uc_mcontext) return;
     uint64_t settings=atomic_load(&s_flow_settings);
     if (settings && uc->uc_mcontext->__ss.__x[0]!=settings) return;
-    s_accept_flow((int32_t)uc->uc_mcontext->__ss.__x[1]);
+    int32_t locked=atomic_load(&s_flow_locked);
+    uc->uc_mcontext->__ss.__x[1]=(uint32_t)xrc_flow_lock_write(
+        (int32_t)uc->uc_mcontext->__ss.__x[1],locked,xrc_rate_adapt_flow_enabled());
 }
 bool xrc_rate_adapt_set_native_flow(double speed) {
+    if (xrc_rate_adapt_flow_enabled() || atomic_load(&s_flow_original)>0) return false;
     uint64_t units=0;
     if (!xrc_live_flow_units(speed,&units) || ![NSThread isMainThread]) return false;
     if (!s_write_flow(s_settings(),(int32_t)units)) return false;
@@ -132,14 +164,6 @@ void xrc_rate_adapt_frame_begin(void *scene,void *ng) {
     if (s_scene!=(uint64_t)scene || s_ng!=(uint64_t)ng || s_clock!=clock || s_song!=song) {
         s_scene=(uint64_t)scene;s_ng=(uint64_t)ng;s_clock=clock;s_song=song;s_extra=0;
         xrc_rate_adapt_native_tick();
-    }
-    // The stored chart speed is the same native value (not a distance/geometry factor).
-    int32_t desired=xrc_flow_value(atomic_load(&s_shared_units),xrc_clock_get_rate(),
-                                   xrc_rate_adapt_flow_enabled());
-    uint64_t chart=*(uint64_t *)((char *)ng+40);
-    if (desired>0 && chart) {
-        float current=*(float *)(chart+240), speed=desired/10.0f;
-        if (isfinite(current) && current!=speed) *(float *)(chart+240)=speed;
     }
     s_original_offset=xrc_rate_adapt_offset_enabled() ? s_preference_offset() : 0;
     int32_t desired_offset=xrc_adapt_offset_extra(s_original_offset,xrc_clock_get_rate(),

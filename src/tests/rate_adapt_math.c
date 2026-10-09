@@ -4,7 +4,7 @@ int main(void) {
     const double rates[] = {0.25, 0.5, 0.75, 1, 2, 4};
     for (unsigned i=0; i<sizeof(rates)/sizeof(rates[0]); ++i) {
         double r=rates[i];
-        assert(fabs(xrc_adapt_flow_factor(r,true)-r)<1e-8);
+        assert(fabs(xrc_adapt_flow_factor(r,true)*r-1)<1e-8);
         assert(fabs((100+xrc_adapt_offset_extra(100,r,true))/r-100)<1e-8);
         assert(fabs((-100+xrc_adapt_offset_extra(-100,r,true))/r+100)<1e-8);
         assert(xrc_adapt_offset_extra(100,r,false)==0);
@@ -32,27 +32,17 @@ int main(void) {
     assert(!xrc_live_flow_units(NAN,&units));
     assert(!xrc_live_flow_units(0,&units));
     assert(!xrc_live_flow_units(-1,&units));
-    // Runtime scaling never changes the shared 1x setting.
-    int shared=50;
-    const int expected[]={13,25,38,50,100,200};
-    for (unsigned i=0;i<sizeof(rates)/sizeof(rates[0]);++i) {
-        assert(xrc_flow_value(shared,rates[i],true)==expected[i]);
-        assert(xrc_flow_value(shared,rates[i],false)==50);
-    }
-    shared=70; // either interface edits the same 1x baseline
-    assert(xrc_flow_value(shared,0.5,true)==35);
-    assert(xrc_flow_value(shared,2,true)==140);
-    assert(xrc_flow_value(shared,2,false)==70);
-    assert(xrc_flow_value(50,0.5,true)==25);
-    assert(xrc_flow_value(50,2,true)==100);
-    assert(xrc_flow_value(50,0.75,true)==38);
+    assert(xrc_flow_value(50,0.5,true)==100);
+    assert(xrc_flow_value(50,2,true)==25);
+    assert(xrc_flow_value(50,0.75,true)==67);
     assert(xrc_flow_value(50,0.5,false)==50);
-    assert(xrc_flow_value(0,0.5,true)==0);
-    assert(xrc_flow_value(INT_MAX,4,true)==INT_MAX);
-    for (int i=0;i<1000;++i) {
-        int base=50;
-        assert(xrc_flow_value(base,i%2 ? 0.5 : 2,true)==(i%2 ? 25 : 100));
-        assert(xrc_flow_value(base,1,true)==50);
+    assert(xrc_flow_value(INT_MAX,0.05,true)==INT_MAX);
+    int original=50, locked=xrc_flow_value(original,0.5,true);
+    for (int incoming=1;incoming<=200;++incoming) {
+        assert(xrc_flow_lock_write(incoming,locked,true)==100);
+        assert(xrc_flow_lock_write(incoming,locked,false)==incoming);
     }
+    assert(xrc_flow_lock_write(original,locked,false)==50); // unlock restores saved original
+    assert(xrc_flow_lock_write(70,0,true)==70); // initialization cannot force a zero value
     return 0;
 }

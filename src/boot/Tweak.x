@@ -179,7 +179,6 @@ static void doBootstrap(void) {
         @try { xrc_brk_setup(base); }           @catch (NSException *e) { xrc_logw(XRCLC_BOOT, @"brk EX: %@", e); }
         xrc_apply_switches();   // 开关统一入口（%ctor 已调过一次；此处幂等刷新）
         xrc_konzetsu_tick();
-        xrc_rate_adapt_install();
         // 私服重定向：NSURLConnection 层改写 URL（不改 TLS；换域后 pin 自然放行）
         @try {
             xrc_net_install();
@@ -197,6 +196,7 @@ static void doBootstrap(void) {
         } @catch (NSException *e) { xrc_logw(XRCLC_BOOT, @"timewarp EX: %@", e); }
         if (g_cfg.speed_count > 0)
             xrc_clock_set_rate((double)g_cfg.speeds[g_cfg.rate_index]);
+        xrc_rate_adapt_install(); // Capture a new lock using the restored playback rate.
         xrc_logd(XRCLC_BOOT, @"config path: %@", xrc_config_path());
         // 必须挂 NSRunLoopCommonModes：scheduledTimerWithTimeInterval: 只进 default mode，
         // 而 cocos2d 的游戏循环不服务 default mode —— 对局中轮询会整个停摆
